@@ -1,0 +1,11 @@
+name: jasper_html
+version: 0.1.0
+license: MIT
+
+authors:
+  - Luis Lavena <luislavena@gmail.com>
+
+description: |
+  A pure Crystal HTML5 parser that passes the full html5lib-tests suite.
+
+crystal: ">= 1.18.2"
