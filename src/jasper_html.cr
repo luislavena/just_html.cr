@@ -7,6 +7,7 @@ require "./jasper_html/element"
 require "./jasper_html/entities"
 require "./jasper_html/tokenizer"
 require "./jasper_html/tree_builder"
+require "./jasper_html/serializer"
 
 module JasperHTML
 end
