@@ -4,6 +4,7 @@ require "./jasper_html/tokens"
 require "./jasper_html/constants"
 require "./jasper_html/node"
 require "./jasper_html/element"
+require "./jasper_html/entities"
 
 module JasperHTML
 end

@@ -1,9 +1,7 @@
 require "./spec_helper"
 
-describe JasperHtml do
-  # TODO: Write tests
-
-  it "works" do
-    false.should eq(true)
+describe JasperHTML do
+  it "has a version" do
+    JasperHTML::VERSION.should_not be_nil
   end
 end
