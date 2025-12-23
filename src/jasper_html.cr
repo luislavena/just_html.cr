@@ -5,6 +5,7 @@ require "./jasper_html/constants"
 require "./jasper_html/node"
 require "./jasper_html/element"
 require "./jasper_html/entities"
+require "./jasper_html/tokenizer"
 
 module JasperHTML
 end

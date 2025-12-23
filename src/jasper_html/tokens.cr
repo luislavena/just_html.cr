@@ -23,6 +23,10 @@ module JasperHTML
     def kind : Symbol
       @kind.start? ? :start : :end
     end
+
+    def has_attribute?(attr : String) : Bool
+      @attrs.has_key?(attr)
+    end
   end
 
   struct Doctype
