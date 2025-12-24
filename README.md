@@ -81,7 +81,43 @@ end
 
 ## Development
 
-TODO: Write development instructions here
+### Running tests
+
+```console
+crystal spec
+```
+
+### Running html5lib-tests
+
+JustHTML is verified against the official html5lib-tests suite. To run these tests:
+
+1. Clone the html5lib-tests repository (if not already available):
+
+   ```console
+   git clone https://github.com/html5lib/html5lib-tests.git
+   ```
+
+2. Create the required symlinks in the `tests` directory:
+
+   ```console
+   mkdir -p tests
+   ln -s ../html5lib-tests/tree-construction tests/html5lib-tests-tree
+   ln -s ../html5lib-tests/tokenizer tests/html5lib-tests-tokenizer
+   ```
+
+3. Build and run the test runner:
+
+   ```console
+   crystal build run_tests.cr -o run_tests
+   ./run_tests
+   ```
+
+#### Test runner options
+
+- `-v`, `--verbose`: Show details of failing tests
+- `-x`, `--fail-fast`: Stop on first failure
+- `-q`, `--quiet`: Only show summary
+- `--test-specs SPECS`: Run specific tests (e.g., `tests1.dat:0,1,2`)
 
 ## Contributing
 
