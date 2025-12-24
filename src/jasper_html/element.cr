@@ -56,6 +56,22 @@ module JasperHTML
       end
       cloned
     end
+
+    # Query for the first matching element using CSS selector
+    def query_selector(selector_string : String) : Element?
+      if selector = Selector.parse(selector_string)
+        selector.query(self)
+      end
+    end
+
+    # Query for all matching elements using CSS selector
+    def query_selector_all(selector_string : String) : Array(Element)
+      if selector = Selector.parse(selector_string)
+        selector.query_all(self)
+      else
+        [] of Element
+      end
+    end
   end
 
   class Text < Node
