@@ -9,6 +9,7 @@ require "./jasper_html/element"
 require "./jasper_html/tokenizer"
 require "./jasper_html/tree_builder"
 require "./jasper_html/serializer"
+require "./jasper_html/encoding"
 
 module JasperHTML
   # Parse an HTML document string into a Document
