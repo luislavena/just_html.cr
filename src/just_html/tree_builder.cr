@@ -1,4 +1,11 @@
 module JustHTML
+  # Marker class for active formatting elements list scope boundaries
+  class ActiveFormattingMarker
+  end
+
+  # Union type for active formatting elements list entries
+  alias ActiveFormattingEntry = Element | ActiveFormattingMarker
+
   class TreeBuilder
     include TokenSink
 
@@ -28,17 +35,22 @@ module JustHTML
       AfterAfterFrameset
     end
 
+    # Formatting elements that use the adoption agency algorithm
+    FORMATTING_ELEMENTS = {"a", "b", "big", "code", "em", "font", "i", "nobr", "s", "small", "strike", "strong", "tt", "u"}
+
     getter document : Document
     getter errors : Array(ParseError)
 
     @mode : InsertionMode
     @original_mode : InsertionMode?
     @open_elements : Array(Element)
+    @active_formatting_elements : Array(ActiveFormattingEntry)
     @head_element : Element?
     @form_element : Element?
     @frameset_ok : Bool
     @ignore_lf : Bool
     @tokenizer : Tokenizer?
+    @foster_parenting : Bool
 
     def initialize(@collect_errors : Bool = false)
       @document = Document.new
@@ -46,11 +58,13 @@ module JustHTML
       @mode = InsertionMode::Initial
       @original_mode = nil
       @open_elements = [] of Element
+      @active_formatting_elements = [] of ActiveFormattingEntry
       @head_element = nil
       @form_element = nil
       @frameset_ok = true
       @ignore_lf = false
       @tokenizer = nil
+      @foster_parenting = false
     end
 
     def self.parse(html : String, collect_errors : Bool = false) : Document
@@ -98,7 +112,39 @@ module JustHTML
       end
       @ignore_lf = false
 
+      # Handle whitespace in certain modes
+      case @mode
+      when .initial?, .before_html?, .before_head?, .after_head?
+        # Skip leading whitespace in these modes
+        data = data.lstrip
+        return if data.empty?
+        # If non-whitespace, need to ensure proper context
+        if @mode.before_head? || @mode.after_head?
+          ensure_body_context
+        end
+      when .in_body?
+        # Reconstruct active formatting elements when in body mode
+        reconstruct_active_formatting_elements
+      when .in_table?, .in_table_body?, .in_row?
+        # In table modes, characters need special handling
+        # According to the spec, we should process using "in body" rules but with foster parenting
+        @foster_parenting = true
+        reconstruct_active_formatting_elements
+        insert_text(data)
+        @foster_parenting = false
+        return
+      when .in_cell?, .in_caption?
+        # In cell/caption, process normally using in-body rules
+        reconstruct_active_formatting_elements
+      end
+
       # Insert text into current element
+      insert_text(data)
+    end
+
+    private def insert_text(data : String) : Nil
+      return if data.empty?
+
       if current = current_node
         # If the last child is a text node, append to it
         if last = current.children.last?
@@ -115,6 +161,19 @@ module JustHTML
         # Text before any element - ensure html/body exist
         ensure_body_context
         if current = current_node
+          current.append_child(Text.new(data))
+        end
+      end
+    end
+
+    private def insert_table_text(data : String) : Nil
+      # Insert text for table context - may need foster parenting
+      if current = current_node
+        if {"table", "tbody", "tfoot", "thead", "tr"}.includes?(current.name)
+          # Text needs to be foster parented
+          text_node = Text.new(data)
+          foster_parent_node(text_node)
+        else
           current.append_child(Text.new(data))
         end
       end
@@ -247,6 +306,14 @@ module JustHTML
           @mode = InsertionMode::InBody
           process_start_tag(tag)
         end
+      when .in_table?
+        process_in_table_start_tag(tag)
+      when .in_table_body?
+        process_in_table_body_start_tag(tag)
+      when .in_row?
+        process_in_row_start_tag(tag)
+      when .in_cell?
+        process_in_cell_start_tag(tag)
       else
         # Default: insert the element
         element = create_element(tag)
@@ -254,6 +321,144 @@ module JustHTML
         if Constants::VOID_ELEMENTS.includes?(name)
           @open_elements.pop
         end
+      end
+    end
+
+    private def process_in_table_start_tag(tag : Tag) : Nil
+      name = tag.name
+
+      case name
+      when "caption"
+        clear_stack_back_to_table_context
+        @active_formatting_elements << ActiveFormattingMarker.new
+        element = create_element(tag)
+        insert_element(element)
+        @mode = InsertionMode::InCaption
+      when "colgroup"
+        clear_stack_back_to_table_context
+        element = create_element(tag)
+        insert_element(element)
+        @mode = InsertionMode::InColumnGroup
+      when "col"
+        clear_stack_back_to_table_context
+        # Insert implicit colgroup
+        colgroup = Element.new("colgroup")
+        insert_element(colgroup)
+        @mode = InsertionMode::InColumnGroup
+        process_start_tag(tag)
+      when "tbody", "tfoot", "thead"
+        clear_stack_back_to_table_context
+        element = create_element(tag)
+        insert_element(element)
+        @mode = InsertionMode::InTableBody
+      when "td", "th", "tr"
+        clear_stack_back_to_table_context
+        # Insert implicit tbody
+        tbody = Element.new("tbody")
+        insert_element(tbody)
+        @mode = InsertionMode::InTableBody
+        process_start_tag(tag)
+      when "table"
+        # Close current table and start a new one
+        if has_element_in_table_scope?("table")
+          pop_until("table")
+          reset_insertion_mode
+          process_start_tag(tag)
+        end
+      when "style", "script", "template"
+        # Process using "in head" rules
+        @mode = InsertionMode::InHead
+        process_start_tag(tag)
+        @mode = InsertionMode::InTable
+      when "input"
+        # If type is hidden, insert it; otherwise foster parent
+        if tag.attrs["type"]?.try(&.downcase) == "hidden"
+          element = create_element(tag)
+          insert_element(element)
+          @open_elements.pop
+        else
+          # Foster parent
+          @foster_parenting = true
+          process_in_body_start_tag(tag)
+          @foster_parenting = false
+        end
+      when "form"
+        if @form_element.nil?
+          @form_element = Element.new(tag.name, tag.attrs)
+          foster_parent_node(@form_element.not_nil!)
+        end
+      else
+        # Foster parent anything else
+        @foster_parenting = true
+        process_in_body_start_tag(tag)
+        @foster_parenting = false
+      end
+    end
+
+    private def process_in_table_body_start_tag(tag : Tag) : Nil
+      name = tag.name
+
+      case name
+      when "tr"
+        clear_stack_back_to_table_body_context
+        element = create_element(tag)
+        insert_element(element)
+        @mode = InsertionMode::InRow
+      when "th", "td"
+        clear_stack_back_to_table_body_context
+        # Insert implicit tr
+        tr = Element.new("tr")
+        insert_element(tr)
+        @mode = InsertionMode::InRow
+        process_start_tag(tag)
+      when "caption", "col", "colgroup", "tbody", "tfoot", "thead"
+        if has_element_in_table_scope?("tbody") || has_element_in_table_scope?("thead") || has_element_in_table_scope?("tfoot")
+          clear_stack_back_to_table_body_context
+          pop_current_table_body
+          @mode = InsertionMode::InTable
+          process_start_tag(tag)
+        end
+      else
+        # Process using "in table" rules
+        process_in_table_start_tag(tag)
+      end
+    end
+
+    private def process_in_row_start_tag(tag : Tag) : Nil
+      name = tag.name
+
+      case name
+      when "th", "td"
+        clear_stack_back_to_table_row_context
+        element = create_element(tag)
+        insert_element(element)
+        @mode = InsertionMode::InCell
+        @active_formatting_elements << ActiveFormattingMarker.new
+      when "caption", "col", "colgroup", "tbody", "tfoot", "thead", "tr"
+        if has_element_in_table_scope?("tr")
+          clear_stack_back_to_table_row_context
+          @open_elements.pop # Pop tr
+          @mode = InsertionMode::InTableBody
+          process_start_tag(tag)
+        end
+      else
+        # Process using "in table" rules
+        process_in_table_start_tag(tag)
+      end
+    end
+
+    private def process_in_cell_start_tag(tag : Tag) : Nil
+      name = tag.name
+
+      case name
+      when "caption", "col", "colgroup", "tbody", "td", "tfoot", "th", "thead", "tr"
+        if has_element_in_table_scope?("td") || has_element_in_table_scope?("th")
+          close_cell
+          process_start_tag(tag)
+        end
+      else
+        # Process using "in body" rules
+        process_in_body_start_tag(tag)
       end
     end
 
@@ -333,18 +538,46 @@ module JustHTML
         element = create_element(tag)
         insert_element(element)
       when "a"
-        # Check for existing a in active formatting elements (simplified)
+        # Check for existing a in active formatting elements
+        # If found, run adoption agency algorithm for it first
+        @active_formatting_elements.reverse_each do |entry|
+          case entry
+          when ActiveFormattingMarker
+            break
+          when Element
+            if entry.name == "a"
+              run_adoption_agency_algorithm("a")
+              @active_formatting_elements.reject! { |e| e == entry }
+              @open_elements.delete(entry)
+              break
+            end
+          end
+        end
+        reconstruct_active_formatting_elements
         element = create_element(tag)
         insert_element(element)
+        push_onto_active_formatting_elements(element)
       when "b", "big", "code", "em", "font", "i", "s", "small", "strike", "strong", "tt", "u"
+        reconstruct_active_formatting_elements
         element = create_element(tag)
         insert_element(element)
+        push_onto_active_formatting_elements(element)
       when "nobr"
+        reconstruct_active_formatting_elements
+        # If nobr is already in scope, run AAA for it first
+        if has_element_in_scope?("nobr")
+          run_adoption_agency_algorithm("nobr")
+          reconstruct_active_formatting_elements
+        end
         element = create_element(tag)
         insert_element(element)
+        push_onto_active_formatting_elements(element)
       when "applet", "marquee", "object"
+        reconstruct_active_formatting_elements
         element = create_element(tag)
         insert_element(element)
+        @active_formatting_elements << ActiveFormattingMarker.new
+        @frameset_ok = false
       when "table"
         close_p_if_in_button_scope
         element = create_element(tag)
@@ -542,15 +775,25 @@ module JustHTML
           end
         end
       when "a", "b", "big", "code", "em", "font", "i", "nobr", "s", "small", "strike", "strong", "tt", "u"
-        # Adoption agency algorithm (simplified)
-        8.times do
-          break unless @open_elements.any? { |el| el.name == name }
-          pop_until(name)
+        # Run the adoption agency algorithm
+        handled = run_adoption_agency_algorithm(name)
+        # If AAA returned false, process as "any other end tag"
+        unless handled
+          (@open_elements.size - 1).downto(0) do |i|
+            el = @open_elements[i]
+            if el.name == name
+              generate_implied_end_tags(name)
+              (@open_elements.size - i).times { @open_elements.pop }
+              break
+            end
+            break if Constants::SPECIAL_ELEMENTS.includes?(el.name)
+          end
         end
       when "applet", "marquee", "object"
         if has_element_in_scope?(name)
           generate_implied_end_tags
           pop_until(name)
+          clear_active_formatting_elements_to_last_marker
         end
       when "br"
         # Parse error, treat as start tag
@@ -577,7 +820,9 @@ module JustHTML
     end
 
     private def insert_element(element : Element) : Nil
-      if current = current_node
+      if @foster_parenting && in_table_context?
+        foster_parent_node(element)
+      elsif current = current_node
         current.append_child(element)
       else
         @document.append_child(element)
@@ -586,10 +831,23 @@ module JustHTML
     end
 
     private def insert_node(node : Node) : Nil
-      if current = current_node
+      if @foster_parenting && in_table_context?
+        foster_parent_node(node)
+      elsif current = current_node
         current.append_child(node)
       else
         @document.append_child(node)
+      end
+    end
+
+    private def in_table_context? : Bool
+      # Check if the current node (where we'd insert) is a table-related element
+      # If the current node is NOT a table element (e.g., it's a foster-parented <p>),
+      # then we shouldn't foster parent children of that element
+      if current = current_node
+        {"table", "tbody", "tfoot", "thead", "tr", "td", "th", "caption", "colgroup"}.includes?(current.name)
+      else
+        false
       end
     end
 
@@ -670,6 +928,386 @@ module JustHTML
         return false if scope_terminators.includes?(el.name)
       end
       false
+    end
+
+    private def has_element_in_table_scope?(name : String) : Bool
+      scope_terminators = {"html", "table", "template"}
+      @open_elements.reverse_each do |el|
+        return true if el.name == name
+        return false if scope_terminators.includes?(el.name)
+      end
+      false
+    end
+
+    # Table context helpers
+
+    private def clear_stack_back_to_table_context : Nil
+      while el = @open_elements.last?
+        break if {"table", "template", "html"}.includes?(el.name)
+        @open_elements.pop
+      end
+    end
+
+    private def clear_stack_back_to_table_body_context : Nil
+      while el = @open_elements.last?
+        break if {"tbody", "tfoot", "thead", "template", "html"}.includes?(el.name)
+        @open_elements.pop
+      end
+    end
+
+    private def clear_stack_back_to_table_row_context : Nil
+      while el = @open_elements.last?
+        break if {"tr", "template", "html"}.includes?(el.name)
+        @open_elements.pop
+      end
+    end
+
+    private def pop_current_table_body : Nil
+      if el = @open_elements.last?
+        if {"tbody", "tfoot", "thead"}.includes?(el.name)
+          @open_elements.pop
+        end
+      end
+    end
+
+    private def close_cell : Nil
+      generate_implied_end_tags
+      while el = @open_elements.pop?
+        break if {"td", "th"}.includes?(el.name)
+      end
+      clear_active_formatting_elements_to_last_marker
+      @mode = InsertionMode::InRow
+    end
+
+    private def reset_insertion_mode : Nil
+      @open_elements.reverse_each do |el|
+        last = el == @open_elements.first?
+        case el.name
+        when "select"
+          @mode = InsertionMode::InSelect
+          return
+        when "td", "th"
+          @mode = InsertionMode::InCell
+          return
+        when "tr"
+          @mode = InsertionMode::InRow
+          return
+        when "tbody", "thead", "tfoot"
+          @mode = InsertionMode::InTableBody
+          return
+        when "caption"
+          @mode = InsertionMode::InCaption
+          return
+        when "colgroup"
+          @mode = InsertionMode::InColumnGroup
+          return
+        when "table"
+          @mode = InsertionMode::InTable
+          return
+        when "template"
+          @mode = InsertionMode::InTemplate
+          return
+        when "body"
+          @mode = InsertionMode::InBody
+          return
+        when "frameset"
+          @mode = InsertionMode::InFrameset
+          return
+        when "html"
+          if @head_element.nil?
+            @mode = InsertionMode::BeforeHead
+          else
+            @mode = InsertionMode::AfterHead
+          end
+          return
+        end
+        if last
+          @mode = InsertionMode::InBody
+          return
+        end
+      end
+      @mode = InsertionMode::InBody
+    end
+
+    # Active formatting elements methods
+
+    private def push_onto_active_formatting_elements(element : Element) : Nil
+      # Check for duplicate formatting elements (Noah's Ark clause)
+      # If there are already 3 elements with same tag and attributes, remove the earliest
+      count = 0
+      earliest_idx : Int32? = nil
+
+      @active_formatting_elements.each_with_index do |entry, idx|
+        case entry
+        when ActiveFormattingMarker
+          # Reset count at marker
+          count = 0
+          earliest_idx = nil
+        when Element
+          if entry.name == element.name && entry.attrs == element.attrs
+            count += 1
+            earliest_idx = idx if earliest_idx.nil?
+          end
+        end
+      end
+
+      if count >= 3 && earliest_idx
+        @active_formatting_elements.delete_at(earliest_idx)
+      end
+
+      @active_formatting_elements << element
+    end
+
+    private def reconstruct_active_formatting_elements : Nil
+      return if @active_formatting_elements.empty?
+
+      # If the last entry is a marker or in the stack, return
+      last = @active_formatting_elements.last
+      return if last.is_a?(ActiveFormattingMarker)
+      return if @open_elements.includes?(last)
+
+      # Step 4: Let entry be the last element
+      entry_idx = @active_formatting_elements.size - 1
+
+      # Step 5-7: Rewind
+      loop do
+        break if entry_idx == 0
+        entry_idx -= 1
+        entry = @active_formatting_elements[entry_idx]
+        if entry.is_a?(ActiveFormattingMarker) || @open_elements.includes?(entry)
+          entry_idx += 1
+          break
+        end
+      end
+
+      # Step 8: Advance and create
+      while entry_idx < @active_formatting_elements.size
+        entry = @active_formatting_elements[entry_idx]
+        if entry.is_a?(Element)
+          # Create a new element with same tag and attributes
+          new_element = Element.new(entry.name, entry.attrs.dup)
+          insert_element(new_element)
+          @active_formatting_elements[entry_idx] = new_element
+        end
+        entry_idx += 1
+      end
+    end
+
+    private def clear_active_formatting_elements_to_last_marker : Nil
+      while entry = @active_formatting_elements.pop?
+        break if entry.is_a?(ActiveFormattingMarker)
+      end
+    end
+
+    private def remove_from_active_formatting_elements(element : Element) : Nil
+      @active_formatting_elements.reject! { |e| e == element }
+    end
+
+    # The Adoption Agency Algorithm - handles misnested formatting elements
+    private def run_adoption_agency_algorithm(subject : String) : Bool
+      # Step 1-2: If current node is the subject and not in active formatting elements
+      if current = current_node
+        if current.name == subject
+          in_active = @active_formatting_elements.any? { |e| e.is_a?(Element) && e == current }
+          unless in_active
+            @open_elements.pop
+            return true
+          end
+        end
+      end
+
+      # Step 3-4: Outer loop (max 8 iterations)
+      8.times do
+        # Step 5: Find formatting element in active formatting elements
+        formatting_element : Element? = nil
+        formatting_element_idx : Int32? = nil
+
+        (@active_formatting_elements.size - 1).downto(0) do |i|
+          entry = @active_formatting_elements[i]
+          case entry
+          when ActiveFormattingMarker
+            break # Not found before marker
+          when Element
+            if entry.name == subject
+              formatting_element = entry
+              formatting_element_idx = i
+              break
+            end
+          end
+        end
+
+        # Step 6: If no formatting element, process as any other end tag
+        return false unless formatting_element && formatting_element_idx
+
+        # Step 7: Check if formatting element is in the stack of open elements
+        stack_idx = @open_elements.index(formatting_element)
+        unless stack_idx
+          # Not in stack - remove from active formatting and return
+          @active_formatting_elements.delete_at(formatting_element_idx)
+          return true
+        end
+
+        # Step 8: Check if formatting element is in scope
+        unless has_element_in_scope?(subject)
+          return true # Parse error, do nothing
+        end
+
+        # Step 9: Find the furthest block
+        furthest_block : Element? = nil
+        furthest_block_idx : Int32? = nil
+
+        ((stack_idx + 1)...@open_elements.size).each do |i|
+          el = @open_elements[i]
+          if Constants::SPECIAL_ELEMENTS.includes?(el.name)
+            furthest_block = el
+            furthest_block_idx = i
+            break
+          end
+        end
+
+        # Step 10: If no furthest block, pop until formatting element
+        unless furthest_block && furthest_block_idx
+          while el = @open_elements.pop?
+            break if el == formatting_element
+          end
+          @active_formatting_elements.delete_at(formatting_element_idx)
+          return true
+        end
+
+        # Step 11: Let common ancestor be the element immediately above formatting element
+        common_ancestor = @open_elements[stack_idx - 1]? if stack_idx > 0
+
+        # Step 12: Let bookmark point to formatting element's position
+        bookmark = formatting_element_idx
+
+        # Step 13: Let node and last node point to furthest block
+        node = furthest_block
+        node_idx = furthest_block_idx
+        last_node = furthest_block
+
+        # Step 14: Inner loop
+        inner_loop_counter = 0
+        loop do
+          # Step 14.1: Increment inner loop counter
+          inner_loop_counter += 1
+
+          # Step 14.2: Let node be the element immediately above node in the stack
+          node_idx -= 1
+          break if node_idx < 0
+          node = @open_elements[node_idx]
+
+          # Step 14.3: If node is the formatting element, break
+          break if node == formatting_element
+
+          # Step 14.4: If inner loop counter > 3 and node is in active formatting, remove it
+          if inner_loop_counter > 3
+            @active_formatting_elements.reject! { |e| e == node }
+          end
+
+          # Step 14.5: If node is not in active formatting elements, remove from stack and continue
+          node_in_active = @active_formatting_elements.index { |e| e == node }
+          unless node_in_active
+            @open_elements.delete_at(node_idx)
+            furthest_block_idx -= 1 if furthest_block_idx > node_idx
+            next
+          end
+
+          # Step 14.6: Create new element, replace in both lists
+          new_element = Element.new(node.name, node.attrs.dup)
+
+          # Replace in active formatting elements
+          @active_formatting_elements[node_in_active] = new_element
+
+          # Replace in open elements stack
+          @open_elements[node_idx] = new_element
+
+          # Step 14.7: If last node is furthest block, update bookmark
+          if last_node == furthest_block
+            bookmark = node_in_active + 1
+          end
+
+          # Step 14.8: Move last node to be a child of new element
+          if parent = last_node.parent
+            parent.children.delete(last_node)
+          end
+          new_element.append_child(last_node)
+
+          # Step 14.9: Set last node to new element
+          last_node = new_element
+          node = new_element
+        end
+
+        # Step 15: Insert last node at appropriate place for common ancestor
+        if common_ancestor
+          # If foster parenting, do that; otherwise insert in common ancestor
+          if @foster_parenting
+            foster_parent_node(last_node)
+          else
+            if parent = last_node.parent
+              parent.children.delete(last_node)
+            end
+            common_ancestor.append_child(last_node)
+          end
+        end
+
+        # Step 16: Create new element with formatting element's attributes
+        new_formatting_element = Element.new(formatting_element.name, formatting_element.attrs.dup)
+
+        # Step 17: Take all children of furthest block and append to new element
+        furthest_block.children.each do |child|
+          child.parent = new_formatting_element
+        end
+        new_formatting_element.children.concat(furthest_block.children)
+        furthest_block.children.clear
+
+        # Step 18: Append new element to furthest block
+        furthest_block.append_child(new_formatting_element)
+
+        # Step 19: Remove formatting element from active formatting and insert new element at bookmark
+        @active_formatting_elements.delete(formatting_element)
+        bookmark = [bookmark, @active_formatting_elements.size].min
+        @active_formatting_elements.insert(bookmark, new_formatting_element)
+
+        # Step 20: Remove formatting element from stack and insert new element after furthest block
+        @open_elements.delete(formatting_element)
+        new_idx = @open_elements.index(furthest_block)
+        if new_idx
+          @open_elements.insert(new_idx + 1, new_formatting_element)
+        else
+          @open_elements << new_formatting_element
+        end
+      end
+
+      true
+    end
+
+    # Foster parenting - insert node before the table in the DOM
+    private def foster_parent_node(node : Node) : Nil
+      # Find the last table in the stack
+      table_idx = @open_elements.rindex { |el| el.name == "table" }
+
+      if table_idx
+        table = @open_elements[table_idx]
+        if parent = table.parent
+          # Insert before the table
+          idx = parent.children.index(table) || parent.children.size
+          node.parent = parent
+          parent.children.insert(idx, node)
+          return
+        elsif table_idx > 0
+          # Insert as last child of element before table in stack
+          foster_parent = @open_elements[table_idx - 1]
+          foster_parent.append_child(node)
+          return
+        end
+      end
+
+      # Fallback: insert in body or html
+      if body = @open_elements.find { |el| el.name == "body" }
+        body.append_child(node)
+      elsif html = @open_elements.first?
+        html.append_child(node)
+      end
     end
   end
 
