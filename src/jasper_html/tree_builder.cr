@@ -665,4 +665,154 @@ module JasperHTML
       false
     end
   end
+
+  # FragmentBuilder parses HTML fragments into DocumentFragment nodes
+  class FragmentBuilder
+    include TokenSink
+
+    getter fragment : DocumentFragment
+    getter errors : Array(ParseError)
+
+    @open_elements : Array(Element)
+    @context : Element
+    @tokenizer : Tokenizer?
+    @ignore_lf : Bool
+
+    def initialize(context_name : String = "body", @collect_errors : Bool = false)
+      @fragment = DocumentFragment.new
+      @errors = [] of ParseError
+      @context = Element.new(context_name)
+      @open_elements = [@context]
+      @tokenizer = nil
+      @ignore_lf = false
+    end
+
+    def self.parse(html : String, context : String = "body", collect_errors : Bool = false) : DocumentFragment
+      builder = new(context, collect_errors)
+      tokenizer = Tokenizer.new(builder, collect_errors)
+      builder.set_tokenizer(tokenizer)
+      tokenizer.run(html)
+
+      # Move children from context element to fragment
+      builder.context.children.each do |child|
+        child.parent = builder.fragment
+        builder.fragment.children << child
+      end
+      builder.context.children.clear
+
+      builder.fragment
+    end
+
+    protected def context : Element
+      @context
+    end
+
+    def set_tokenizer(tokenizer : Tokenizer) : Nil
+      @tokenizer = tokenizer
+    end
+
+    # TokenSink implementation
+
+    def process_tag(tag : Tag) : Nil
+      if tag.kind == :start
+        process_start_tag(tag)
+      else
+        process_end_tag(tag)
+      end
+    end
+
+    def process_comment(comment : CommentToken) : Nil
+      node = Comment.new(comment.data)
+      insert_node(node)
+    end
+
+    def process_doctype(doctype : Doctype) : Nil
+      # Ignore doctype in fragments
+    end
+
+    def process_eof : Nil
+      # Nothing to do
+    end
+
+    def process_characters(data : String) : Nil
+      return if data.empty?
+
+      if @ignore_lf && data[0] == '\n'
+        data = data[1..]
+        return if data.empty?
+      end
+      @ignore_lf = false
+
+      if current = current_node
+        # Merge adjacent text nodes
+        if last = current.children.last?
+          if last.is_a?(Text)
+            combined = last.as(Text).data + data
+            current.children.pop
+            current.append_child(Text.new(combined))
+            return
+          end
+        end
+        current.append_child(Text.new(data))
+      end
+    end
+
+    def open_elements : Array(Element)
+      @open_elements
+    end
+
+    private def process_start_tag(tag : Tag) : Nil
+      name = tag.name
+
+      case name
+      when "script", "style"
+        element = Element.new(tag.name, tag.attrs)
+        insert_element(element)
+        @tokenizer.try(&.set_state(Tokenizer::State::RAWTEXT))
+      when "textarea"
+        element = Element.new(tag.name, tag.attrs)
+        insert_element(element)
+        @ignore_lf = true
+        @tokenizer.try(&.set_state(Tokenizer::State::RCDATA))
+      else
+        element = Element.new(tag.name, tag.attrs)
+        insert_element(element)
+        if Constants::VOID_ELEMENTS.includes?(name)
+          @open_elements.pop
+        end
+      end
+    end
+
+    private def process_end_tag(tag : Tag) : Nil
+      name = tag.name
+
+      # Pop elements until we find a matching one
+      (@open_elements.size - 1).downto(1) do |i|
+        el = @open_elements[i]
+        if el.name == name
+          # Pop up to and including the matched element
+          (@open_elements.size - i).times { @open_elements.pop }
+          break
+        end
+        break if Constants::SPECIAL_ELEMENTS.includes?(el.name)
+      end
+    end
+
+    private def insert_element(element : Element) : Nil
+      if current = current_node
+        current.append_child(element)
+      end
+      @open_elements << element
+    end
+
+    private def insert_node(node : Node) : Nil
+      if current = current_node
+        current.append_child(node)
+      end
+    end
+
+    private def current_node : Element?
+      @open_elements.last?
+    end
+  end
 end

@@ -11,4 +11,13 @@ require "./jasper_html/tree_builder"
 require "./jasper_html/serializer"
 
 module JasperHTML
+  # Parse an HTML document string into a Document
+  def self.parse(html : String, collect_errors : Bool = false) : Document
+    TreeBuilder.parse(html, collect_errors)
+  end
+
+  # Parse an HTML fragment string into a DocumentFragment
+  def self.parse_fragment(html : String, context : String = "body", collect_errors : Bool = false) : DocumentFragment
+    FragmentBuilder.parse(html, context, collect_errors)
+  end
 end

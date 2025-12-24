@@ -146,6 +146,32 @@ module JasperHTML
       end
       cloned
     end
+
+    # Serialize document to HTML string
+    def to_html : String
+      Serializer.to_html(self)
+    end
+
+    # Extract text content from document
+    def to_text : String
+      Serializer.to_text(self)
+    end
+
+    # Query for the first matching element using CSS selector
+    def query_selector(selector_string : String) : Element?
+      if selector = Selector.parse(selector_string)
+        selector.query(self)
+      end
+    end
+
+    # Query for all matching elements using CSS selector
+    def query_selector_all(selector_string : String) : Array(Element)
+      if selector = Selector.parse(selector_string)
+        selector.query_all(self)
+      else
+        [] of Element
+      end
+    end
   end
 
   class DocumentFragment < Node
@@ -165,6 +191,32 @@ module JasperHTML
         end
       end
       cloned
+    end
+
+    # Serialize fragment to HTML string
+    def to_html : String
+      Serializer.to_html(self)
+    end
+
+    # Extract text content from fragment
+    def to_text : String
+      Serializer.to_text(self)
+    end
+
+    # Query for the first matching element using CSS selector
+    def query_selector(selector_string : String) : Element?
+      if selector = Selector.parse(selector_string)
+        selector.query(self)
+      end
+    end
+
+    # Query for all matching elements using CSS selector
+    def query_selector_all(selector_string : String) : Array(Element)
+      if selector = Selector.parse(selector_string)
+        selector.query_all(self)
+      else
+        [] of Element
+      end
     end
   end
 end
