@@ -116,6 +116,76 @@ module JasperHTML
       end
     end
 
+    # Pseudo-class selectors
+    struct FirstChildSelector < SimpleSelector
+      def matches?(element : Element) : Bool
+        parent = element.parent
+        return false unless parent
+        element_siblings = parent.children.select { |c| c.is_a?(Element) }
+        element_siblings.first? == element
+      end
+    end
+
+    struct LastChildSelector < SimpleSelector
+      def matches?(element : Element) : Bool
+        parent = element.parent
+        return false unless parent
+        element_siblings = parent.children.select { |c| c.is_a?(Element) }
+        element_siblings.last? == element
+      end
+    end
+
+    struct NthChildSelector < SimpleSelector
+      getter a : Int32
+      getter b : Int32
+
+      def initialize(@a : Int32, @b : Int32)
+      end
+
+      def matches?(element : Element) : Bool
+        parent = element.parent
+        return false unless parent
+
+        element_siblings = parent.children.select { |c| c.is_a?(Element) }
+        index = element_siblings.index(element)
+        return false unless index
+
+        n = index + 1 # 1-based index
+
+        if @a == 0
+          n == @b
+        else
+          (n - @b) % @a == 0 && (n - @b) / @a >= 0
+        end
+      end
+    end
+
+    struct OnlyChildSelector < SimpleSelector
+      def matches?(element : Element) : Bool
+        parent = element.parent
+        return false unless parent
+        element_siblings = parent.children.select { |c| c.is_a?(Element) }
+        element_siblings.size == 1
+      end
+    end
+
+    struct EmptySelector < SimpleSelector
+      def matches?(element : Element) : Bool
+        element.children.none? { |c| c.is_a?(Element) || (c.is_a?(Text) && !c.as(Text).data.empty?) }
+      end
+    end
+
+    struct NotSelector < SimpleSelector
+      getter inner : CompoundSelector
+
+      def initialize(@inner : CompoundSelector)
+      end
+
+      def matches?(element : Element) : Bool
+        !@inner.matches?(element)
+      end
+    end
+
     # A compound selector is a sequence of simple selectors
     class CompoundSelector
       getter selectors : Array(SimpleSelector)
@@ -338,6 +408,10 @@ module JasperHTML
             attr = parse_attribute_selector
             return nil unless attr
             compound.add(attr)
+          when ':'
+            pseudo = parse_pseudo_class
+            return nil unless pseudo
+            compound.add(pseudo)
           when .ascii_letter?, '-', '_'
             name = parse_identifier
             compound.add(TypeSelector.new(name)) unless name.empty?
@@ -347,6 +421,130 @@ module JasperHTML
         end
 
         compound
+      end
+
+      private def parse_pseudo_class : SimpleSelector?
+        return nil unless current_char == ':'
+        @pos += 1
+
+        name = parse_identifier
+        return nil if name.empty?
+
+        case name.downcase
+        when "first-child"
+          FirstChildSelector.new
+        when "last-child"
+          LastChildSelector.new
+        when "only-child"
+          OnlyChildSelector.new
+        when "empty"
+          EmptySelector.new
+        when "nth-child"
+          parse_nth_child
+        when "not"
+          parse_not_selector
+        else
+          nil
+        end
+      end
+
+      private def parse_nth_child : NthChildSelector?
+        return nil unless @pos < @length && current_char == '('
+        @pos += 1
+        skip_whitespace
+
+        a = 0
+        b = 0
+
+        if @pos < @length
+          case
+          when current_char == 'o' || current_char == 'O'
+            # odd
+            word = parse_identifier
+            if word.downcase == "odd"
+              a = 2
+              b = 1
+            else
+              return nil
+            end
+          when current_char == 'e' || current_char == 'E'
+            # even
+            word = parse_identifier
+            if word.downcase == "even"
+              a = 2
+              b = 0
+            else
+              return nil
+            end
+          when current_char.ascii_number? || current_char == '-' || current_char == '+'
+            # Parse number or An+B
+            num_str = String::Builder.new
+            if current_char == '-' || current_char == '+'
+              num_str << current_char
+              @pos += 1
+            end
+            while @pos < @length && current_char.ascii_number?
+              num_str << current_char
+              @pos += 1
+            end
+            num_result = num_str.to_s
+            if num_result.empty? || num_result == "-" || num_result == "+"
+              return nil
+            end
+            b = num_result.to_i
+            a = 0
+          else
+            return nil
+          end
+        end
+
+        skip_whitespace
+        return nil unless @pos < @length && current_char == ')'
+        @pos += 1
+
+        NthChildSelector.new(a, b)
+      end
+
+      private def parse_not_selector : NotSelector?
+        return nil unless @pos < @length && current_char == '('
+        @pos += 1
+        skip_whitespace
+
+        # Parse inner simple selectors (compound selector)
+        inner = CompoundSelector.new
+        loop do
+          break if @pos >= @length || current_char == ')'
+
+          case current_char
+          when '.'
+            @pos += 1
+            name = parse_identifier
+            return nil if name.empty?
+            inner.add(ClassSelector.new(name))
+          when '#'
+            @pos += 1
+            name = parse_identifier
+            return nil if name.empty?
+            inner.add(IdSelector.new(name))
+          when '['
+            attr = parse_attribute_selector
+            return nil unless attr
+            inner.add(attr)
+          when .ascii_letter?, '-', '_'
+            name = parse_identifier
+            inner.add(TypeSelector.new(name)) unless name.empty?
+          else
+            break
+          end
+        end
+
+        return nil if inner.empty?
+
+        skip_whitespace
+        return nil unless @pos < @length && current_char == ')'
+        @pos += 1
+
+        NotSelector.new(inner)
       end
 
       private def parse_attribute_selector : AttributeSelector?

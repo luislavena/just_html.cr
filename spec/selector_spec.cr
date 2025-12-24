@@ -205,6 +205,77 @@ describe JasperHTML::Selector do
       results.size.should eq(2)
     end
   end
+
+  describe "pseudo-class selectors" do
+    it "matches :first-child" do
+      doc = JasperHTML::TreeBuilder.parse("<ul><li>First</li><li>Second</li><li>Third</li></ul>")
+      ul = find_body(doc).children.first.as(JasperHTML::Element)
+
+      result = ul.query_selector("li:first-child")
+      result.should_not be_nil
+      result.not_nil!.children.first.as(JasperHTML::Text).data.should eq("First")
+    end
+
+    it "matches :last-child" do
+      doc = JasperHTML::TreeBuilder.parse("<ul><li>First</li><li>Second</li><li>Third</li></ul>")
+      ul = find_body(doc).children.first.as(JasperHTML::Element)
+
+      result = ul.query_selector("li:last-child")
+      result.should_not be_nil
+      result.not_nil!.children.first.as(JasperHTML::Text).data.should eq("Third")
+    end
+
+    it "matches :nth-child(n)" do
+      doc = JasperHTML::TreeBuilder.parse("<ul><li>First</li><li>Second</li><li>Third</li></ul>")
+      ul = find_body(doc).children.first.as(JasperHTML::Element)
+
+      result = ul.query_selector("li:nth-child(2)")
+      result.should_not be_nil
+      result.not_nil!.children.first.as(JasperHTML::Text).data.should eq("Second")
+    end
+
+    it "matches :nth-child(odd)" do
+      doc = JasperHTML::TreeBuilder.parse("<ul><li>1</li><li>2</li><li>3</li><li>4</li></ul>")
+      ul = find_body(doc).children.first.as(JasperHTML::Element)
+
+      results = ul.query_selector_all("li:nth-child(odd)")
+      results.size.should eq(2)
+    end
+
+    it "matches :nth-child(even)" do
+      doc = JasperHTML::TreeBuilder.parse("<ul><li>1</li><li>2</li><li>3</li><li>4</li></ul>")
+      ul = find_body(doc).children.first.as(JasperHTML::Element)
+
+      results = ul.query_selector_all("li:nth-child(even)")
+      results.size.should eq(2)
+    end
+
+    it "matches :only-child" do
+      doc = JasperHTML::TreeBuilder.parse("<div><p>Only</p></div><div><p>First</p><p>Second</p></div>")
+      body = find_body(doc)
+
+      results = body.query_selector_all("p:only-child")
+      results.size.should eq(1)
+      results.first.children.first.as(JasperHTML::Text).data.should eq("Only")
+    end
+
+    it "matches :empty" do
+      doc = JasperHTML::TreeBuilder.parse("<div><p></p><p>Not empty</p><p></p></div>")
+      div = find_body(doc).children.first.as(JasperHTML::Element)
+
+      results = div.query_selector_all("p:empty")
+      results.size.should eq(2)
+    end
+
+    it "matches :not(selector)" do
+      doc = JasperHTML::TreeBuilder.parse("<div><p class='skip'>A</p><p>B</p><p class='skip'>C</p></div>")
+      div = find_body(doc).children.first.as(JasperHTML::Element)
+
+      results = div.query_selector_all("p:not(.skip)")
+      results.size.should eq(1)
+      results.first.children.first.as(JasperHTML::Text).data.should eq("B")
+    end
+  end
 end
 
 private def find_body(doc : JasperHTML::Document) : JasperHTML::Element
