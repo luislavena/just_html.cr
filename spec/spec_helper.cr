@@ -1,2 +1,2 @@
 require "spec"
-require "../src/jasper_html"
+require "../src/just_html"

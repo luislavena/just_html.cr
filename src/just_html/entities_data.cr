@@ -1,4 +1,4 @@
-module JasperHTML
+module JustHTML
   module Entities
     # Generated from Python html.entities.html5
     # Contains HTML5 named character references

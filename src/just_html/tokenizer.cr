@@ -1,4 +1,4 @@
-module JasperHTML
+module JustHTML
   module TokenSink
     abstract def process_tag(tag : Tag) : Nil
     abstract def process_comment(comment : CommentToken) : Nil
@@ -104,6 +104,7 @@ module JasperHTML
 
     # Current tag being built
     @current_tag_name : String::Builder
+    @current_tag_name_cached : String?
     @current_tag_kind : Tag::Kind
     @current_tag_attrs : Hash(String, String?)
     @current_tag_self_closing : Bool
@@ -140,6 +141,7 @@ module JasperHTML
       @errors = [] of ParseError
 
       @current_tag_name = String::Builder.new
+      @current_tag_name_cached = nil
       @current_tag_kind = Tag::Kind::Start
       @current_tag_attrs = {} of String => String?
       @current_tag_self_closing = false
@@ -379,6 +381,7 @@ module JasperHTML
         false
       when .ascii_letter?
         @current_tag_name = String::Builder.new
+        @current_tag_name_cached = nil
         @current_tag_kind = Tag::Kind::Start
         @current_tag_attrs = {} of String => String?
         @current_tag_self_closing = false
@@ -408,6 +411,7 @@ module JasperHTML
         false
       when .ascii_letter?
         @current_tag_name = String::Builder.new
+        @current_tag_name_cached = nil
         @current_tag_kind = Tag::Kind::End
         @current_tag_attrs = {} of String => String?
         @current_tag_self_closing = false
@@ -435,8 +439,10 @@ module JasperHTML
         @state = State::SelfClosingStartTag
         false
       when '>'
+        saved_state = @state
         emit_current_tag
-        @state = State::Data
+        # Only reset to Data if tree builder didn't change the state
+        @state = State::Data if @state == saved_state
         false
       when '\0'
         add_error("unexpected-null-character")
@@ -466,6 +472,7 @@ module JasperHTML
       c = @current_char
       if c && c.ascii_letter?
         @current_tag_name = String::Builder.new
+        @current_tag_name_cached = nil
         @current_tag_kind = Tag::Kind::End
         @current_tag_attrs = {} of String => String?
         @current_tag_self_closing = false
@@ -495,6 +502,7 @@ module JasperHTML
         end
       elsif c == '>'
         if is_appropriate_end_tag?
+          flush_text
           emit_current_tag
           @state = State::Data
           return false
@@ -531,6 +539,7 @@ module JasperHTML
       c = @current_char
       if c && c.ascii_letter?
         @current_tag_name = String::Builder.new
+        @current_tag_name_cached = nil
         @current_tag_kind = Tag::Kind::End
         @current_tag_attrs = {} of String => String?
         @current_tag_self_closing = false
@@ -560,6 +569,7 @@ module JasperHTML
         end
       elsif c == '>'
         if is_appropriate_end_tag?
+          flush_text
           emit_current_tag
           @state = State::Data
           return false
@@ -648,8 +658,9 @@ module JasperHTML
         false
       when '>'
         finish_attribute_without_value
+        saved_state = @state
         emit_current_tag
-        @state = State::Data
+        @state = State::Data if @state == saved_state
         false
       else
         finish_attribute_without_value
@@ -673,8 +684,9 @@ module JasperHTML
         false
       when '>'
         add_error("missing-attribute-value")
+        saved_state = @state
         emit_current_tag
-        @state = State::Data
+        @state = State::Data if @state == saved_state
         false
       else
         @state = State::AttributeValueUnquoted
@@ -744,8 +756,9 @@ module JasperHTML
         false
       when '>'
         finish_attribute
+        saved_state = @state
         emit_current_tag
-        @state = State::Data
+        @state = State::Data if @state == saved_state
         false
       when '\0'
         add_error("unexpected-null-character")
@@ -773,8 +786,9 @@ module JasperHTML
         @state = State::SelfClosingStartTag
         false
       when '>'
+        saved_state = @state
         emit_current_tag
-        @state = State::Data
+        @state = State::Data if @state == saved_state
         false
       else
         add_error("missing-whitespace-between-attributes")
@@ -791,8 +805,9 @@ module JasperHTML
         true
       when '>'
         @current_tag_self_closing = true
+        saved_state = @state
         emit_current_tag
-        @state = State::Data
+        @state = State::Data if @state == saved_state
         false
       else
         add_error("unexpected-solidus-in-tag")
@@ -1687,6 +1702,7 @@ module JasperHTML
       @temp_buffer << code.chr
       flush_code_points_consumed_as_character_reference
       @state = @return_state
+      @reconsume = true
       false
     end
 
@@ -1717,7 +1733,15 @@ module JasperHTML
     end
 
     private def is_appropriate_end_tag? : Bool
-      @current_tag_name.to_s == @last_start_tag_name
+      current_tag_name_string == @last_start_tag_name
+    end
+
+    private def current_tag_name_string : String
+      @current_tag_name_cached ||= @current_tag_name.to_s
+    end
+
+    private def reset_tag_name_cache : Nil
+      @current_tag_name_cached = nil
     end
 
     private def is_in_attribute_value? : Bool
@@ -1772,11 +1796,12 @@ module JasperHTML
     end
 
     private def emit_current_tag : Nil
-      name = @current_tag_name.to_s
+      name = current_tag_name_string
       tag = Tag.new(@current_tag_kind, name, @current_tag_attrs, @current_tag_self_closing)
       if @current_tag_kind == Tag::Kind::Start
         @last_start_tag_name = name
       end
+      reset_tag_name_cache
       @sink.process_tag(tag)
     end
 

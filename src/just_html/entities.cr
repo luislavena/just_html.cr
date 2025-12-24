@@ -1,6 +1,6 @@
 require "./entities_data"
 
-module JasperHTML
+module JustHTML
   module Entities
     # Legacy named character references that can be used without semicolons
     LEGACY_ENTITIES = Set{

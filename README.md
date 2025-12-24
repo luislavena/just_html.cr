@@ -1,6 +1,6 @@
-# jasper_html
+# JustHTML
 
-TODO: Write a description here
+A pure Crystal HTML5 parser that passes the full html5lib-tests suite.
 
 ## Installation
 
@@ -8,8 +8,8 @@ TODO: Write a description here
 
    ```yaml
    dependencies:
-     jasper_html:
-       github: luislavena/jasper_html
+     just_html:
+       github: luislavena/just_html.cr
    ```
 
 2. Run `shards install`
@@ -17,10 +17,18 @@ TODO: Write a description here
 ## Usage
 
 ```crystal
-require "jasper_html"
-```
+require "just_html"
 
-TODO: Write usage instructions here
+# Parse an HTML document
+doc = JustHTML.parse("<html><body><p>Hello, world!</p></body></html>")
+
+# Query elements using CSS selectors
+p = doc.query_selector("p")
+puts p.not_nil!.text_content  # => "Hello, world!"
+
+# Parse an HTML fragment
+fragment = JustHTML.parse_fragment("<p>Hello</p><p>World</p>")
+```
 
 ## Development
 
@@ -28,7 +36,7 @@ TODO: Write development instructions here
 
 ## Contributing
 
-1. Fork it (<https://github.com/luislavena/jasper_html/fork>)
+1. Fork it (<https://github.com/luislavena/just_html.cr/fork>)
 2. Create your feature branch (`git checkout -b my-new-feature`)
 3. Commit your changes (`git commit -am 'Add some feature'`)
 4. Push to the branch (`git push origin my-new-feature`)

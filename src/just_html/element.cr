@@ -1,6 +1,6 @@
 require "./node"
 
-module JasperHTML
+module JustHTML
   class Element < Node
     getter name : String
     getter namespace : String
@@ -45,6 +45,78 @@ module JasperHTML
 
     def has_class?(name : String) : Bool
       classes.includes?(name)
+    end
+
+    # Returns the text content of this element and its descendants
+    def text_content : String
+      builder = String::Builder.new
+      Element.collect_text_from(self, builder)
+      builder.to_s
+    end
+
+    protected def self.collect_text_from(element : Element, builder : String::Builder) : Nil
+      element.children.each do |child|
+        case child
+        when Text
+          builder << child.data
+        when Element
+          collect_text_from(child, builder)
+        end
+      end
+    end
+
+    # Returns the HTML content of this element's children
+    def inner_html : String
+      builder = String::Builder.new
+      @children.each do |child|
+        Serializer.serialize_child(child, builder)
+      end
+      builder.to_s
+    end
+
+    # Returns the HTML of this element including itself
+    def outer_html : String
+      Serializer.to_html(self)
+    end
+
+    # Returns a list of ancestor elements, from parent to root
+    def ancestors : Array(Element)
+      result = [] of Element
+      current = @parent
+      while current
+        result << current if current.is_a?(Element)
+        current = current.parent
+      end
+      result
+    end
+
+    # Returns the next sibling element, skipping text and comment nodes
+    def next_element_sibling : Element?
+      parent = @parent
+      return nil unless parent
+
+      found_self = false
+      parent.children.each do |sibling|
+        if sibling == self
+          found_self = true
+          next
+        end
+        return sibling if found_self && sibling.is_a?(Element)
+      end
+      nil
+    end
+
+    # Returns the previous sibling element, skipping text and comment nodes
+    def previous_element_sibling : Element?
+      parent = @parent
+      return nil unless parent
+
+      previous : Element? = nil
+      parent.children.each do |sibling|
+        return previous if sibling == self
+        previous = sibling if sibling.is_a?(Element)
+      end
+      nil
     end
 
     def clone(deep : Bool = false) : Element

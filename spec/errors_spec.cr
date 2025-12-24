@@ -1,15 +1,15 @@
 require "./spec_helper"
 
-describe JasperHTML::Error do
+describe JustHTML::Error do
   it "is a base exception" do
-    error = JasperHTML::Error.new("test")
+    error = JustHTML::Error.new("test")
     error.should be_a(Exception)
   end
 end
 
-describe JasperHTML::ParseError do
+describe JustHTML::ParseError do
   it "stores error details" do
-    error = JasperHTML::ParseError.new(
+    error = JustHTML::ParseError.new(
       code: "unexpected-null-character",
       line: 1,
       column: 5,
@@ -22,7 +22,7 @@ describe JasperHTML::ParseError do
   end
 
   it "formats error string with location" do
-    error = JasperHTML::ParseError.new(
+    error = JustHTML::ParseError.new(
       code: "eof-in-tag",
       line: 3,
       column: 10
@@ -32,9 +32,9 @@ describe JasperHTML::ParseError do
   end
 end
 
-describe JasperHTML::SelectorError do
+describe JustHTML::SelectorError do
   it "inherits from Error" do
-    error = JasperHTML::SelectorError.new("invalid selector")
-    error.should be_a(JasperHTML::Error)
+    error = JustHTML::SelectorError.new("invalid selector")
+    error.should be_a(JustHTML::Error)
   end
 end

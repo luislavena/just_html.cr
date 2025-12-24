@@ -1,4 +1,4 @@
-module JasperHTML
+module JustHTML
   class TreeBuilder
     include TokenSink
 
@@ -211,11 +211,13 @@ module JasperHTML
             end
           end
         elsif {"base", "basefont", "bgsound", "link", "meta", "noframes", "script", "style", "template", "title"}.includes?(name)
-          # These go in head
+          # These go in head - switch to InHead mode temporarily
           if head = @head_element
             @open_elements << head
+            @mode = InsertionMode::InHead
             process_start_tag(tag)
             @open_elements.delete(head)
+            @mode = InsertionMode::AfterHead
           end
         else
           # Insert implicit body

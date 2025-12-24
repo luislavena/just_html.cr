@@ -1,4 +1,4 @@
-module JasperHTML
+module JustHTML
   struct Tag
     enum Kind
       Start

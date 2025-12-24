@@ -1,4 +1,4 @@
-module JasperHTML
+module JustHTML
   abstract class Node
     property parent : Node?
     getter children : Array(Node)

@@ -112,21 +112,21 @@ module HTML5LibTests
   end
 
   # Convert a parsed document to html5lib test format
-  def self.serialize_to_test_format(node : JasperHTML::Node, indent : Int32 = 0) : String
+  def self.serialize_to_test_format(node : JustHTML::Node, indent : Int32 = 0) : String
     result = String::Builder.new
     serialize_node(node, result, indent)
     result.to_s.strip
   end
 
-  private def self.serialize_node(node : JasperHTML::Node, builder : String::Builder, indent : Int32) : Nil
+  private def self.serialize_node(node : JustHTML::Node, builder : String::Builder, indent : Int32) : Nil
     prefix = "| " + ("  " * indent)
 
     case node
-    when JasperHTML::Document
+    when JustHTML::Document
       node.children.each { |child| serialize_node(child, builder, indent) }
-    when JasperHTML::DocumentFragment
+    when JustHTML::DocumentFragment
       node.children.each { |child| serialize_node(child, builder, indent) }
-    when JasperHTML::DoctypeNode
+    when JustHTML::DoctypeNode
       builder << prefix << "<!DOCTYPE "
       builder << (node.doctype_name || "")
       if public_id = node.public_id
@@ -136,7 +136,7 @@ module HTML5LibTests
         builder << " \"\" \"" << system_id << "\""
       end
       builder << ">\n"
-    when JasperHTML::Element
+    when JustHTML::Element
       builder << prefix << "<"
       # Namespace prefix for non-HTML elements
       case node.namespace
@@ -161,9 +161,9 @@ module HTML5LibTests
 
       # Children
       node.children.each { |child| serialize_node(child, builder, indent + 1) }
-    when JasperHTML::Text
+    when JustHTML::Text
       builder << prefix << "\"" << node.data << "\"\n"
-    when JasperHTML::Comment
+    when JustHTML::Comment
       builder << prefix << "<!-- " << node.data << " -->\n"
     end
   end
@@ -171,7 +171,7 @@ module HTML5LibTests
   # Run a single test case and return whether it passed
   def self.run_test(test : TreeConstructionTest) : Bool
     begin
-      doc = JasperHTML::TreeBuilder.parse(test.data)
+      doc = JustHTML::TreeBuilder.parse(test.data)
       actual = serialize_to_test_format(doc)
       expected = test.document.strip
 
@@ -204,7 +204,7 @@ describe "html5lib tree construction tests" do
 
   describe "test serialization" do
     it "serializes a simple document" do
-      doc = JasperHTML::TreeBuilder.parse("<!DOCTYPE html><html><head></head><body></body></html>")
+      doc = JustHTML::TreeBuilder.parse("<!DOCTYPE html><html><head></head><body></body></html>")
       output = HTML5LibTests.serialize_to_test_format(doc)
       output.should contain("<!DOCTYPE html>")
       output.should contain("<html>")
@@ -213,13 +213,13 @@ describe "html5lib tree construction tests" do
     end
 
     it "serializes text nodes" do
-      doc = JasperHTML::TreeBuilder.parse("<p>Hello</p>")
+      doc = JustHTML::TreeBuilder.parse("<p>Hello</p>")
       output = HTML5LibTests.serialize_to_test_format(doc)
       output.should contain("\"Hello\"")
     end
 
     it "serializes comments" do
-      doc = JasperHTML::TreeBuilder.parse("<!--test-->")
+      doc = JustHTML::TreeBuilder.parse("<!--test-->")
       output = HTML5LibTests.serialize_to_test_format(doc)
       output.should contain("<!-- test -->")
     end
@@ -227,17 +227,17 @@ describe "html5lib tree construction tests" do
 
   describe "basic parsing tests" do
     it "parses empty document" do
-      doc = JasperHTML.parse("")
-      doc.should be_a(JasperHTML::Document)
+      doc = JustHTML.parse("")
+      doc.should be_a(JustHTML::Document)
     end
 
     it "parses doctype" do
-      doc = JasperHTML.parse("<!DOCTYPE html>")
-      doc.children.first.should be_a(JasperHTML::DoctypeNode)
+      doc = JustHTML.parse("<!DOCTYPE html>")
+      doc.children.first.should be_a(JustHTML::DoctypeNode)
     end
 
     it "creates implicit html, head, body" do
-      doc = JasperHTML.parse("<p>text</p>")
+      doc = JustHTML.parse("<p>text</p>")
       html = doc.query_selector("html")
       html.should_not be_nil
 
@@ -249,21 +249,21 @@ describe "html5lib tree construction tests" do
     end
 
     it "handles nested elements" do
-      doc = JasperHTML.parse("<div><p><span>text</span></p></div>")
+      doc = JustHTML.parse("<div><p><span>text</span></p></div>")
       span = doc.query_selector("span")
       span.should_not be_nil
-      span.not_nil!.children.first.as(JasperHTML::Text).data.should eq("text")
+      span.not_nil!.children.first.as(JustHTML::Text).data.should eq("text")
     end
 
     it "handles void elements" do
-      doc = JasperHTML.parse("<p>before<br>after</p>")
+      doc = JustHTML.parse("<p>before<br>after</p>")
       p = doc.query_selector("p")
       p.should_not be_nil
       p.not_nil!.children.size.should eq(3) # text, br, text
     end
 
     it "handles attributes" do
-      doc = JasperHTML.parse("<div id='main' class='container'>content</div>")
+      doc = JustHTML.parse("<div id='main' class='container'>content</div>")
       div = doc.query_selector("div")
       div.should_not be_nil
       div.not_nil!.id.should eq("main")
@@ -271,16 +271,16 @@ describe "html5lib tree construction tests" do
     end
 
     it "handles entities" do
-      doc = JasperHTML.parse("<p>&amp; &lt; &gt;</p>")
+      doc = JustHTML.parse("<p>&amp; &lt; &gt;</p>")
       p = doc.query_selector("p")
       p.should_not be_nil
-      p.not_nil!.children.first.as(JasperHTML::Text).data.should eq("& < >")
+      p.not_nil!.children.first.as(JustHTML::Text).data.should eq("& < >")
     end
 
     it "handles comments" do
-      doc = JasperHTML.parse("<!-- comment --><p>text</p>")
+      doc = JustHTML.parse("<!-- comment --><p>text</p>")
       # Comment should be in the document
-      has_comment = doc.children.any? { |c| c.is_a?(JasperHTML::Comment) }
+      has_comment = doc.children.any? { |c| c.is_a?(JustHTML::Comment) }
       has_comment.should be_true
     end
   end

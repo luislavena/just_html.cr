@@ -1,4 +1,4 @@
-module JasperHTML
+module JustHTML
   # CSS Selector parser and matcher
   class Selector
     # Selector token types

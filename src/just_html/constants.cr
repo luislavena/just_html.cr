@@ -1,4 +1,4 @@
-module JasperHTML
+module JustHTML
   module Constants
     VOID_ELEMENTS = Set{
       "area", "base", "br", "col", "embed", "hr", "img", "input",

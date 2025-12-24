@@ -1,4 +1,4 @@
-module JasperHTML
+module JustHTML
   module Encoding
     # Maximum bytes to scan for charset in meta tags
     PRESCAN_LIMIT = 1024

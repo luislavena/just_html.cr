@@ -1,4 +1,4 @@
-module JasperHTML
+module JustHTML
   class Error < Exception
   end
 

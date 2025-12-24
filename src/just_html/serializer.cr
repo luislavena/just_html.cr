@@ -1,4 +1,4 @@
-module JasperHTML
+module JustHTML
   module Serializer
     # Block-level elements that should have newlines in text output
     BLOCK_ELEMENTS = Set{
@@ -19,6 +19,11 @@ module JasperHTML
       builder = String::Builder.new
       serialize_node(node, builder)
       builder.to_s
+    end
+
+    # Serialize a single child node to a builder
+    def self.serialize_child(node : Node, builder : String::Builder) : Nil
+      serialize_node(node, builder)
     end
 
     def self.to_text(node : Node) : String

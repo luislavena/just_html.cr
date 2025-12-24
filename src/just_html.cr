@@ -1,17 +1,17 @@
-require "./jasper_html/version"
-require "./jasper_html/errors"
-require "./jasper_html/tokens"
-require "./jasper_html/constants"
-require "./jasper_html/node"
-require "./jasper_html/entities"
-require "./jasper_html/selector"
-require "./jasper_html/element"
-require "./jasper_html/tokenizer"
-require "./jasper_html/tree_builder"
-require "./jasper_html/serializer"
-require "./jasper_html/encoding"
+require "./just_html/version"
+require "./just_html/errors"
+require "./just_html/tokens"
+require "./just_html/constants"
+require "./just_html/node"
+require "./just_html/entities"
+require "./just_html/selector"
+require "./just_html/element"
+require "./just_html/tokenizer"
+require "./just_html/tree_builder"
+require "./just_html/serializer"
+require "./just_html/encoding"
 
-module JasperHTML
+module JustHTML
   # Parse an HTML document string into a Document
   def self.parse(html : String, collect_errors : Bool = false) : Document
     TreeBuilder.parse(html, collect_errors)
