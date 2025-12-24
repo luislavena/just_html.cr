@@ -173,10 +173,10 @@ module JustHTML
         end
       when .in_head?
         case name
-        when "title", "style", "script", "noscript"
+        when "title", "style", "script", "noscript", "noframes"
           element = create_element(tag)
           insert_element(element)
-          if name == "script" || name == "style"
+          if name == "script" || name == "style" || name == "noframes"
             @tokenizer.try(&.set_state(Tokenizer::State::RAWTEXT))
           end
           @original_mode = @mode
@@ -185,6 +185,11 @@ module JustHTML
           element = create_element(tag)
           insert_element(element)
           @open_elements.pop # Void element
+        when "template"
+          element = create_element(tag)
+          insert_element(element)
+          # Template content would normally go into a document fragment
+          # For simplicity, we just treat it as a regular element
         when "head"
           # Ignore duplicate head
         else
