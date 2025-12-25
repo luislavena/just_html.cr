@@ -260,10 +260,18 @@ module HTML5LibTests
     def run_single_tree_test(test : TreeConstructionTest) : TestResult
       begin
         if fragment_context = test.document_fragment
-          # Parse fragment context - handle "svg path" or just "body"
+          # Parse fragment context - handle "svg path", "math mi", or just "body"
           parts = fragment_context.split(' ', 2)
-          context = parts.size == 2 ? parts[1] : parts[0]
-          doc = JustHTML.parse_fragment(test.data, context)
+          if parts.size == 2
+            namespace = parts[0]
+            # Normalize namespace: test files use "math", but internally we use "mathml"
+            namespace = "mathml" if namespace == "math"
+            context = parts[1]
+          else
+            namespace = "html"
+            context = parts[0]
+          end
+          doc = JustHTML.parse_fragment(test.data, context, namespace)
           actual = serialize_to_test_format(doc)
         else
           doc = JustHTML.parse(test.data)
