@@ -45,6 +45,7 @@ module JustHTML
     @original_mode : InsertionMode?
     @open_elements : Array(Element)
     @active_formatting_elements : Array(ActiveFormattingEntry)
+    @template_insertion_modes : Array(InsertionMode)
     @head_element : Element?
     @form_element : Element?
     @frameset_ok : Bool
@@ -59,6 +60,7 @@ module JustHTML
       @original_mode = nil
       @open_elements = [] of Element
       @active_formatting_elements = [] of ActiveFormattingEntry
+      @template_insertion_modes = [] of InsertionMode
       @head_element = nil
       @form_element = nil
       @frameset_ok = true
@@ -136,6 +138,9 @@ module JustHTML
       when .in_cell?, .in_caption?
         # In cell/caption, process normally using in-body rules
         reconstruct_active_formatting_elements
+      when .in_template?
+        # In template mode, process as in body
+        reconstruct_active_formatting_elements
       end
 
       # Insert text into current element
@@ -146,17 +151,24 @@ module JustHTML
       return if data.empty?
 
       if current = current_node
+        # Determine the target container (template_contents or regular children)
+        if current.name == "template" && (template_contents = current.template_contents)
+          target = template_contents
+        else
+          target = current
+        end
+
         # If the last child is a text node, append to it
-        if last = current.children.last?
+        if last = target.children.last?
           if last.is_a?(Text)
             # Create a new text node with combined data
             combined = last.as(Text).data + data
-            current.children.pop
-            current.append_child(Text.new(combined))
+            target.children.pop
+            target.append_child(Text.new(combined))
             return
           end
         end
-        current.append_child(Text.new(data))
+        target.append_child(Text.new(data))
       else
         # Text before any element - ensure html/body exist
         ensure_body_context
@@ -247,8 +259,10 @@ module JustHTML
         when "template"
           element = create_element(tag)
           insert_element(element)
-          # Template content would normally go into a document fragment
-          # For simplicity, we just treat it as a regular element
+          push_onto_active_formatting_elements(ActiveFormattingMarker.new)
+          @frameset_ok = false
+          @mode = InsertionMode::InTemplate
+          @template_insertion_modes << InsertionMode::InTemplate
         when "head"
           # Ignore duplicate head
         else
@@ -314,6 +328,8 @@ module JustHTML
         process_in_row_start_tag(tag)
       when .in_cell?
         process_in_cell_start_tag(tag)
+      when .in_template?
+        process_in_template_start_tag(tag)
       else
         # Default: insert the element
         element = create_element(tag)
@@ -321,6 +337,46 @@ module JustHTML
         if Constants::VOID_ELEMENTS.includes?(name)
           @open_elements.pop
         end
+      end
+    end
+
+    private def process_in_template_start_tag(tag : Tag) : Nil
+      name = tag.name
+
+      case name
+      when "template"
+        # Process using in head insertion mode
+        element = create_element(tag)
+        insert_element(element)
+        push_onto_active_formatting_elements(ActiveFormattingMarker.new)
+        @frameset_ok = false
+        @mode = InsertionMode::InTemplate
+        @template_insertion_modes << InsertionMode::InTemplate
+      when "col"
+        @template_insertion_modes.pop
+        @template_insertion_modes << InsertionMode::InColumnGroup
+        @mode = InsertionMode::InColumnGroup
+        process_start_tag(tag)
+      when "caption", "colgroup", "tbody", "tfoot", "thead"
+        @template_insertion_modes.pop
+        @template_insertion_modes << InsertionMode::InTable
+        @mode = InsertionMode::InTable
+        process_start_tag(tag)
+      when "tr"
+        @template_insertion_modes.pop
+        @template_insertion_modes << InsertionMode::InTableBody
+        @mode = InsertionMode::InTableBody
+        process_start_tag(tag)
+      when "td", "th"
+        @template_insertion_modes.pop
+        @template_insertion_modes << InsertionMode::InRow
+        @mode = InsertionMode::InRow
+        process_start_tag(tag)
+      else
+        @template_insertion_modes.pop
+        @template_insertion_modes << InsertionMode::InBody
+        @mode = InsertionMode::InBody
+        process_start_tag(tag)
       end
     end
 
@@ -689,7 +745,16 @@ module JustHTML
           process_end_tag(tag)
         end
       when .in_head?
-        if name == "head"
+        if name == "template"
+          # Handle template end tag
+          if @open_elements.any? { |el| el.name == "template" }
+            generate_implied_end_tags
+            pop_until("template")
+            clear_active_formatting_elements_to_last_marker
+            @template_insertion_modes.pop
+            reset_insertion_mode
+          end
+        elsif name == "head"
           @open_elements.pop
           @mode = InsertionMode::AfterHead
         elsif name == "body" || name == "html" || name == "br"
@@ -719,6 +784,22 @@ module JustHTML
         else
           @mode = InsertionMode::InBody
           process_end_tag(tag)
+        end
+      when .in_template?
+        # Handle end tags in template mode
+        if name == "template"
+          # Handle template end tag (same as in_head)
+          if @open_elements.any? { |el| el.name == "template" }
+            generate_implied_end_tags
+            pop_until("template")
+            clear_active_formatting_elements_to_last_marker
+            @template_insertion_modes.pop
+            reset_insertion_mode
+          end
+        else
+          # For other end tags, process using the current template insertion mode
+          # This is already handled by reset_insertion_mode
+          process_in_body_end_tag(tag)
         end
       else
         # Default behavior
@@ -803,6 +884,15 @@ module JustHTML
           pop_until(name)
           clear_active_formatting_elements_to_last_marker
         end
+      when "template"
+        # Handle template end tag
+        if @open_elements.any? { |el| el.name == "template" }
+          generate_implied_end_tags
+          pop_until("template")
+          clear_active_formatting_elements_to_last_marker
+          @template_insertion_modes.pop
+          reset_insertion_mode
+        end
       when "br"
         # Parse error, treat as start tag
         process_start_tag(Tag.new(:start, "br"))
@@ -840,7 +930,12 @@ module JustHTML
       if @foster_parenting && in_table_context?
         foster_parent_node(element)
       elsif current = current_node
-        current.append_child(element)
+        # If current is a template element, insert into its template_contents
+        if current.name == "template" && (template_contents = current.template_contents)
+          template_contents.append_child(element)
+        else
+          current.append_child(element)
+        end
       else
         @document.append_child(element)
       end
@@ -851,7 +946,12 @@ module JustHTML
       if @foster_parenting && in_table_context?
         foster_parent_node(node)
       elsif current = current_node
-        current.append_child(node)
+        # If current is a template element, insert into its template_contents
+        if current.name == "template" && (template_contents = current.template_contents)
+          template_contents.append_child(node)
+        else
+          current.append_child(node)
+        end
       else
         @document.append_child(node)
       end
@@ -1022,7 +1122,12 @@ module JustHTML
           @mode = InsertionMode::InTable
           return
         when "template"
-          @mode = InsertionMode::InTemplate
+          # Use the current template insertion mode from the stack
+          if mode = @template_insertion_modes.last?
+            @mode = mode
+          else
+            @mode = InsertionMode::InTemplate
+          end
           return
         when "body"
           @mode = InsertionMode::InBody
@@ -1048,20 +1153,27 @@ module JustHTML
 
     # Active formatting elements methods
 
-    private def push_onto_active_formatting_elements(element : Element) : Nil
+    private def push_onto_active_formatting_elements(entry : ActiveFormattingEntry) : Nil
+      # If it's a marker, just add it
+      if entry.is_a?(ActiveFormattingMarker)
+        @active_formatting_elements << entry
+        return
+      end
+
       # Check for duplicate formatting elements (Noah's Ark clause)
       # If there are already 3 elements with same tag and attributes, remove the earliest
+      element = entry.as(Element)
       count = 0
       earliest_idx : Int32? = nil
 
-      @active_formatting_elements.each_with_index do |entry, idx|
-        case entry
+      @active_formatting_elements.each_with_index do |existing, idx|
+        case existing
         when ActiveFormattingMarker
           # Reset count at marker
           count = 0
           earliest_idx = nil
         when Element
-          if entry.name == element.name && entry.attrs == element.attrs
+          if existing.name == element.name && existing.attrs == element.attrs
             count += 1
             earliest_idx = idx if earliest_idx.nil?
           end
@@ -1263,7 +1375,12 @@ module JustHTML
             if parent = last_node.parent
               parent.children.delete(last_node)
             end
-            common_ancestor.append_child(last_node)
+            # Insert into template_contents if common ancestor is a template
+            if common_ancestor.name == "template" && (template_contents = common_ancestor.template_contents)
+              template_contents.append_child(last_node)
+            else
+              common_ancestor.append_child(last_node)
+            end
           end
         end
 
