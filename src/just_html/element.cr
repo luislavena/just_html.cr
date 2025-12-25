@@ -5,10 +5,12 @@ module JustHTML
     getter name : String
     getter namespace : String
     property attrs : Hash(String, String?)
+    property template_contents : DocumentFragment?
 
     def initialize(@name : String, @namespace : String = "html")
       super()
       @attrs = {} of String => String?
+      @template_contents = @name == "template" ? DocumentFragment.new : nil
     end
 
     def initialize(@name : String, attrs, @namespace : String = "html")
@@ -17,6 +19,7 @@ module JustHTML
       attrs.each do |key, value|
         @attrs[key] = value
       end
+      @template_contents = @name == "template" ? DocumentFragment.new : nil
     end
 
     def [](attr : String) : String?
@@ -124,6 +127,11 @@ module JustHTML
       if deep
         @children.each do |child|
           cloned.append_child(child.clone(deep: true))
+        end
+        if @template_contents && cloned.template_contents
+          @template_contents.not_nil!.children.each do |child|
+            cloned.template_contents.not_nil!.append_child(child.clone(deep: true))
+          end
         end
       end
       cloned

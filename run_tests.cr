@@ -234,8 +234,14 @@ module HTML5LibTests
           builder << "\n"
         end
 
-        # Children
-        node.children.each { |child| serialize_node(child, builder, indent + 1) }
+        # Template elements have their content in a document fragment
+        if node.name == "template" && (template_contents = node.template_contents)
+          builder << prefix << "  content\n"
+          template_contents.children.each { |child| serialize_node(child, builder, indent + 2) }
+        else
+          # Regular children
+          node.children.each { |child| serialize_node(child, builder, indent + 1) }
+        end
       when JustHTML::Text
         builder << prefix << "\"" << node.data << "\"\n"
       when JustHTML::Comment
