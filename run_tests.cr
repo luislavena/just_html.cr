@@ -421,7 +421,7 @@ module HTML5LibTests
       "PLAINTEXT state"    => :plaintext,
       "RCDATA state"       => :rcdata,
       "RAWTEXT state"      => :rawtext,
-      "Script data state"  => :rawtext,
+      "Script data state"  => :script_data,
       "CDATA section state" => :cdata_section,
     }
 
@@ -467,10 +467,32 @@ module HTML5LibTests
     end
 
     # Tokenize input and return tokens as JSON-compatible format
-    private def tokenize(input : String, _state : Symbol, _last_start_tag : String?) : Array(JSON::Any)
+    private def tokenize(input : String, state : Symbol, last_start_tag : String?) : Array(JSON::Any)
       tokens = [] of JSON::Any
       sink = TokenCollector.new(tokens)
       tokenizer = JustHTML::Tokenizer.new(sink)
+
+      # Set initial state based on the symbol
+      case state
+      when :data
+        tokenizer.set_state(JustHTML::Tokenizer::State::Data)
+      when :plaintext
+        tokenizer.set_state(JustHTML::Tokenizer::State::PLAINTEXT)
+      when :rcdata
+        tokenizer.set_state(JustHTML::Tokenizer::State::RCDATA)
+      when :rawtext
+        tokenizer.set_state(JustHTML::Tokenizer::State::RAWTEXT)
+      when :script_data
+        tokenizer.set_state(JustHTML::Tokenizer::State::ScriptData)
+      when :cdata_section
+        tokenizer.set_state(JustHTML::Tokenizer::State::CDATASection)
+      end
+
+      # Set last start tag name if provided
+      if last_start_tag
+        tokenizer.set_last_start_tag_name(last_start_tag)
+      end
+
       tokenizer.run(input)
       tokens
     end
