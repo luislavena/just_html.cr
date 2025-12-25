@@ -1537,37 +1537,88 @@ module JustHTML
       entity_name = @buffer[name_start..name_end]
       @temp_buffer << entity_name
 
-      if has_semicolon
-        @temp_buffer << ';'
-        @pos += 1
-      end
-
-      # Look up entity
+      # Look up entity - exact match
       if replacement = Entities::NAMED_ENTITIES[entity_name]?
-        # Check attribute value context rules for legacy entities
-        if !has_semicolon && is_in_attribute_value?
-          next_char = @pos < @length ? @buffer[@pos] : nil
-          if next_char && (next_char == '=' || next_char.ascii_alphanumeric?)
+        if has_semicolon
+          # With semicolon: always resolve
+          @pos += 1
+          @temp_buffer = String::Builder.new
+          @temp_buffer << replacement
+          flush_code_points_consumed_as_character_reference
+          @state = @return_state
+          return false
+        else
+          # Without semicolon: only resolve if it's a legacy entity
+          if Entities::LEGACY_ENTITIES.includes?(entity_name)
+            # Check attribute value context rules
+            if is_in_attribute_value?
+              next_char = @pos < @length ? @buffer[@pos] : nil
+              if next_char && (next_char == '=' || next_char.ascii_alphanumeric?)
+                # Don't resolve in attribute if followed by = or alphanumeric
+                flush_code_points_consumed_as_character_reference
+                @state = @return_state
+                return false
+              end
+            end
+
+            # Resolve the legacy entity
+            add_error("missing-semicolon-after-character-reference")
+            @temp_buffer = String::Builder.new
+            @temp_buffer << replacement
             flush_code_points_consumed_as_character_reference
             @state = @return_state
             return false
+          else
+            # Non-legacy entity without semicolon: don't resolve
+            flush_code_points_consumed_as_character_reference
+            @state = State::AmbiguousAmpersand
+            return false
           end
         end
+      end
 
-        if !has_semicolon
-          add_error("missing-semicolon-after-character-reference")
+      # No exact match - try prefix matching for legacy entities
+      # This handles cases like &noti; where &not is a legacy entity
+      best_match : String? = nil
+      best_match_name : String? = nil
+
+      # Try to find longest matching legacy entity prefix
+      (entity_name.size - 1).downto(1) do |k|
+        prefix = entity_name[0...k]
+        if Entities::LEGACY_ENTITIES.includes?(prefix) && (repl = Entities::NAMED_ENTITIES[prefix]?)
+          best_match = repl
+          best_match_name = prefix
+          break
+        end
+      end
+
+      if best_match && best_match_name
+        # Check attribute value context rules
+        if is_in_attribute_value?
+          # In attributes, undefined entities are kept as-is
+          # Don't add semicolon here - ambiguous ampersand will handle it
+          flush_code_points_consumed_as_character_reference
+          @state = State::AmbiguousAmpersand
+          return false
         end
 
+        # In body context: resolve the prefix and keep the rest
+        add_error("missing-semicolon-after-character-reference")
+
+        # Reset position to after the matched prefix
+        @pos = name_start + best_match_name.size
+
         @temp_buffer = String::Builder.new
-        @temp_buffer << replacement
+        @temp_buffer << best_match
         flush_code_points_consumed_as_character_reference
         @state = @return_state
-      else
-        # No match - try prefix matching for legacy entities
-        # For simplicity, just output the temp buffer as-is
-        flush_code_points_consumed_as_character_reference
-        @state = State::AmbiguousAmpersand
+        return false
       end
+
+      # No match found at all
+      # Don't add semicolon here - ambiguous ampersand will handle it
+      flush_code_points_consumed_as_character_reference
+      @state = State::AmbiguousAmpersand
       false
     end
 
