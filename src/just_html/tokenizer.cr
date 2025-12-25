@@ -1900,6 +1900,11 @@ module JustHTML
       @state = state
     end
 
+    # Public method to set the last start tag name for appropriate end tag matching
+    def set_last_start_tag_name(name : String) : Nil
+      @last_start_tag_name = name
+    end
+
     # Helper to check if element has specific attribute
     def has_attribute?(attr : String) : Bool
       @current_tag_attrs.has_key?(attr)
