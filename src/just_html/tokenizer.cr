@@ -1640,13 +1640,21 @@ module JustHTML
     private def state_hexadecimal_character_reference : Bool
       c = @current_char
       if c && c.ascii_number?
-        @char_ref_code = @char_ref_code * 16 + (c.ord - '0'.ord)
+        digit = c.ord - '0'.ord
+        # Prevent arithmetic overflow by capping at max value
+        # Once we exceed 0x10FFFF, keep the overflow value to trigger proper error handling
+        new_code = @char_ref_code.to_i64 * 16 + digit
+        @char_ref_code = new_code > Int32::MAX ? Int32::MAX : new_code.to_i32
         false
       elsif c && ('A'..'F').includes?(c)
-        @char_ref_code = @char_ref_code * 16 + (c.ord - 'A'.ord + 10)
+        digit = c.ord - 'A'.ord + 10
+        new_code = @char_ref_code.to_i64 * 16 + digit
+        @char_ref_code = new_code > Int32::MAX ? Int32::MAX : new_code.to_i32
         false
       elsif c && ('a'..'f').includes?(c)
-        @char_ref_code = @char_ref_code * 16 + (c.ord - 'a'.ord + 10)
+        digit = c.ord - 'a'.ord + 10
+        new_code = @char_ref_code.to_i64 * 16 + digit
+        @char_ref_code = new_code > Int32::MAX ? Int32::MAX : new_code.to_i32
         false
       elsif c == ';'
         @state = State::NumericCharacterReferenceEnd
@@ -1662,7 +1670,11 @@ module JustHTML
     private def state_decimal_character_reference : Bool
       c = @current_char
       if c && c.ascii_number?
-        @char_ref_code = @char_ref_code * 10 + (c.ord - '0'.ord)
+        digit = c.ord - '0'.ord
+        # Prevent arithmetic overflow by capping at max value
+        # Once we exceed 0x10FFFF, keep the overflow value to trigger proper error handling
+        new_code = @char_ref_code.to_i64 * 10 + digit
+        @char_ref_code = new_code > Int32::MAX ? Int32::MAX : new_code.to_i32
         false
       elsif c == ';'
         @state = State::NumericCharacterReferenceEnd

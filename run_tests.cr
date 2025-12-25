@@ -171,7 +171,8 @@ module HTML5LibTests
           # \xNN hex escape
           hex = text[i + 2, 2]
           if hex.matches?(/^[0-9A-Fa-f]{2}$/)
-            result << hex.to_i(16).chr
+            code = hex.to_i(16)
+            result << safe_chr(code)
             i += 4
             next
           end
@@ -179,7 +180,8 @@ module HTML5LibTests
           # \uNNNN unicode escape
           hex = text[i + 2, 4]
           if hex.matches?(/^[0-9A-Fa-f]{4}$/)
-            result << hex.to_i(16).chr
+            code = hex.to_i(16)
+            result << safe_chr(code)
             i += 6
             next
           end
@@ -188,6 +190,17 @@ module HTML5LibTests
         i += 1
       end
       result.to_s
+    end
+
+    # Safely convert codepoint to character, handling surrogates
+    private def safe_chr(code : Int32) : Char
+      # Surrogate range (0xD800-0xDFFF) is invalid in UTF-8
+      # Replace with replacement character
+      if code >= 0xD800 && code <= 0xDFFF
+        '\uFFFD'
+      else
+        code.chr
+      end
     end
 
     # Serialize document to html5lib test format
@@ -500,7 +513,7 @@ module HTML5LibTests
     private def unescape_unicode(text : String) : String
       text.gsub(/\\u([0-9A-Fa-f]{4})/) do |match|
         code = match[2, 4].to_i(16)
-        code.chr.to_s
+        safe_chr(code).to_s
       end
     end
 
