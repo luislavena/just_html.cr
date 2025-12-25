@@ -654,6 +654,14 @@ module JustHTML
       when "span"
         element = create_element(tag)
         insert_element(element)
+      when "svg"
+        reconstruct_active_formatting_elements
+        element = Element.new(tag.name, tag.attrs, Constants::NAMESPACE_SVG)
+        insert_element(element)
+      when "math"
+        reconstruct_active_formatting_elements
+        element = Element.new(tag.name, tag.attrs, Constants::NAMESPACE_MATHML)
+        insert_element(element)
       else
         # Default: insert the element
         element = create_element(tag)
@@ -815,8 +823,17 @@ module JustHTML
 
     # Helper methods
 
-    private def create_element(tag : Tag) : Element
-      Element.new(tag.name, tag.attrs)
+    private def create_element(tag : Tag, namespace : String = "html") : Element
+      name = tag.name
+      # Adjust SVG tag names
+      if namespace == "svg"
+        name = adjust_svg_tag_name(name)
+      end
+      Element.new(name, tag.attrs, namespace)
+    end
+
+    private def adjust_svg_tag_name(name : String) : String
+      Constants::SVG_TAG_ADJUSTMENTS[name]? || name
     end
 
     private def insert_element(element : Element) : Nil
@@ -1323,17 +1340,17 @@ module JustHTML
     @tokenizer : Tokenizer?
     @ignore_lf : Bool
 
-    def initialize(context_name : String = "body", @collect_errors : Bool = false)
+    def initialize(context_name : String = "body", context_namespace : String = "html", @collect_errors : Bool = false)
       @fragment = DocumentFragment.new
       @errors = [] of ParseError
-      @context = Element.new(context_name)
+      @context = Element.new(context_name, context_namespace)
       @open_elements = [@context]
       @tokenizer = nil
       @ignore_lf = false
     end
 
-    def self.parse(html : String, context : String = "body", collect_errors : Bool = false) : DocumentFragment
-      builder = new(context, collect_errors)
+    def self.parse(html : String, context : String = "body", context_namespace : String = "html", collect_errors : Bool = false) : DocumentFragment
+      builder = new(context, context_namespace, collect_errors)
       tokenizer = Tokenizer.new(builder, collect_errors)
       builder.set_tokenizer(tokenizer)
       tokenizer.run(html)
@@ -1406,23 +1423,124 @@ module JustHTML
       @open_elements
     end
 
+    private def adjust_svg_tag_name(name : String) : String
+      Constants::SVG_TAG_ADJUSTMENTS[name]? || name
+    end
+
+    # Check if an element is an HTML integration point
+    private def is_html_integration_point?(element : Element?) : Bool
+      return false unless element
+
+      # SVG foreignObject, desc, title are integration points
+      if element.namespace == "svg"
+        return {"foreignObject", "desc", "title"}.includes?(element.name)
+      end
+
+      # MathML annotation-xml is an integration point with certain attributes
+      # MathML text integration points: mi, mo, mn, ms, mtext
+      if element.namespace == "mathml"
+        if element.name == "annotation-xml"
+          encoding = element["encoding"].try(&.downcase)
+          return encoding == "text/html" || encoding == "application/xhtml+xml"
+        end
+        # MathML text elements are also integration points
+        return {"mi", "mo", "mn", "ms", "mtext"}.includes?(element.name)
+      end
+
+      false
+    end
+
+    # Check if a tag should break out of foreign content
+    # These are HTML formatting/phrasing elements that break out if they have certain attributes
+    private def breaks_out_of_foreign_content?(tag : Tag, current_namespace : String) : Bool
+      return false if current_namespace == "html"
+
+      name = tag.name
+      attrs = tag.attrs
+
+      # Font element with color, face, or size attribute breaks out
+      if name == "font"
+        return attrs.has_key?("color") || attrs.has_key?("face") || attrs.has_key?("size")
+      end
+
+      # These elements always break out
+      break_out_tags = {"b", "big", "blockquote", "body", "br", "center", "code", "dd", "div",
+                        "dl", "dt", "em", "embed", "h1", "h2", "h3", "h4", "h5", "h6", "head",
+                        "hr", "i", "img", "li", "listing", "menu", "meta", "nobr", "ol", "p",
+                        "pre", "ruby", "s", "small", "span", "strong", "strike", "sub", "sup",
+                        "table", "tt", "u", "ul", "var"}
+      return break_out_tags.includes?(name)
+    end
+
+    # Check if a tag name is a MathML-specific element
+    private def is_mathml_text_integration_point_element?(tag_name : String) : Bool
+      # MathML text integration points can have both HTML and MathML content
+      # but certain elements are MathML-only
+      mathml_only = {"mglyph", "malignmark"}
+      mathml_only.includes?(tag_name)
+    end
+
     private def process_start_tag(tag : Tag) : Nil
       name = tag.name
 
+      # Determine the namespace for the new element
+      current = current_node
+      namespace = current.try(&.namespace) || "html"
+
+      # If we're in an HTML integration point and encounter table structure tags,
+      # ignore them (they're parse errors in this context)
+      if current && is_html_integration_point?(current) &&
+         {"tr", "td", "th", "tbody", "thead", "tfoot", "table", "caption", "col", "colgroup"}.includes?(tag.name)
+        # Ignore this tag
+        return
+      end
+
+      # Special handling for MathML text integration points
+      is_in_mathml_integration_point = current && is_html_integration_point?(current) && current.namespace == "mathml"
+
+      # Check if this tag breaks out of foreign content
+      if breaks_out_of_foreign_content?(tag, namespace)
+        namespace = "html"
+      # If current element is an HTML integration point
+      elsif is_in_mathml_integration_point && is_mathml_text_integration_point_element?(tag.name)
+        # MathML-specific elements stay in MathML namespace even in integration points
+        namespace = "mathml"
+      elsif is_html_integration_point?(current)
+        namespace = "html"
+      end
+
+      # Adjust tag name for SVG namespace
+      if namespace == "svg"
+        name = adjust_svg_tag_name(name)
+      end
+
+      # Handle svg/math tags entering foreign content
+      if namespace == "html"
+        if tag.name == "svg"
+          namespace = "svg"
+        elsif tag.name == "math"
+          namespace = "mathml"
+        end
+      end
+
       case name
       when "script", "style"
-        element = Element.new(tag.name, tag.attrs)
+        element = Element.new(name, tag.attrs, namespace)
         insert_element(element)
         @tokenizer.try(&.set_state(Tokenizer::State::RAWTEXT))
       when "textarea"
-        element = Element.new(tag.name, tag.attrs)
+        element = Element.new(name, tag.attrs, namespace)
         insert_element(element)
         @ignore_lf = true
         @tokenizer.try(&.set_state(Tokenizer::State::RCDATA))
       else
-        element = Element.new(tag.name, tag.attrs)
+        element = Element.new(name, tag.attrs, namespace)
         insert_element(element)
-        if Constants::VOID_ELEMENTS.includes?(name)
+        # In foreign content (SVG/MathML), self-closing tags should be popped
+        # In HTML, only void elements should be popped
+        if namespace != "html" && tag.self_closing?
+          @open_elements.pop
+        elsif Constants::VOID_ELEMENTS.includes?(name)
           @open_elements.pop
         end
       end
