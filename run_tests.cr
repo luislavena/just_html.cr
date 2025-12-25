@@ -295,7 +295,7 @@ module HTML5LibTests
       failed = 0
       skipped = 0
 
-      tree_dir = File.join(@test_dir, "html5lib-tests-tree")
+      tree_dir = File.join(@test_dir, "html5lib-tests", "tree-construction")
       return {0, 0, 0} unless File.exists?(tree_dir)
 
       files = Dir.glob(File.join(tree_dir, "**", "*.dat")).sort_by { |f| natural_sort_key(f) }
@@ -368,7 +368,7 @@ module HTML5LibTests
       passed = 0
       failed = 0
 
-      tokenizer_dir = File.join(@test_dir, "html5lib-tests-tokenizer")
+      tokenizer_dir = File.join(@test_dir, "html5lib-tests", "tokenizer")
       return {0, 0} unless File.exists?(tokenizer_dir)
 
       files = Dir.glob(File.join(tokenizer_dir, "*.test")).sort_by { |f| natural_sort_key(f) }
@@ -616,21 +616,28 @@ def main
   end
 
   # Verify test directories exist
-  tree_tests = File.join(test_dir, "html5lib-tests-tree")
-  tok_tests = File.join(test_dir, "html5lib-tests-tokenizer")
+  html5lib_tests = File.join(test_dir, "html5lib-tests")
+  tree_tests = File.join(html5lib_tests, "tree-construction")
+  tok_tests = File.join(html5lib_tests, "tokenizer")
+
+  unless File.exists?(html5lib_tests)
+    STDERR.puts "ERROR: html5lib-tests submodule not found."
+    STDERR.puts
+    STDERR.puts "To set up, run:"
+    STDERR.puts "  git submodule update --init"
+    exit 1
+  end
 
   missing = [] of String
   missing << tree_tests unless File.exists?(tree_tests)
   missing << tok_tests unless File.exists?(tok_tests)
 
   unless missing.empty?
-    STDERR.puts "ERROR: html5lib-tests not found. Please create symlinks:"
+    STDERR.puts "ERROR: html5lib-tests directories not found:"
     missing.each { |p| STDERR.puts "  #{p}" }
     STDERR.puts
-    STDERR.puts "To set up, run:"
-    STDERR.puts "  mkdir -p tests"
-    STDERR.puts "  ln -s ../../html5lib-tests/tree-construction tests/html5lib-tests-tree"
-    STDERR.puts "  ln -s ../../html5lib-tests/tokenizer tests/html5lib-tests-tokenizer"
+    STDERR.puts "Try updating the submodule:"
+    STDERR.puts "  git submodule update --init"
     exit 1
   end
 

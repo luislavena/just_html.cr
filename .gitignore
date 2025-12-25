@@ -3,7 +3,6 @@
 /bin/
 /.shards/
 *.dwarf
-/tests/
 run_tests
 
 # Libraries don't need dependency lock

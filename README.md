@@ -89,23 +89,15 @@ crystal spec
 
 ### Running html5lib-tests
 
-JustHTML is verified against the official html5lib-tests suite. To run these tests:
+JustHTML is verified against the official [html5lib-tests](https://github.com/html5lib/html5lib-tests) suite. The tests are included as a git submodule.
 
-1. Clone the html5lib-tests repository (if not already available):
-
-   ```console
-   git clone https://github.com/html5lib/html5lib-tests.git
-   ```
-
-2. Create the required symlinks in the `tests` directory:
+1. Initialize the submodule (if not already done):
 
    ```console
-   mkdir -p tests
-   ln -s ../html5lib-tests/tree-construction tests/html5lib-tests-tree
-   ln -s ../html5lib-tests/tokenizer tests/html5lib-tests-tokenizer
+   git submodule update --init
    ```
 
-3. Build and run the test runner:
+2. Build and run the test runner:
 
    ```console
    crystal build run_tests.cr -o run_tests
