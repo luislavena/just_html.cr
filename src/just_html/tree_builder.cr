@@ -117,6 +117,10 @@ module JustHTML
     end
 
     def process_doctype(doctype : Doctype) : Nil
+      # DOCTYPE is only valid in Initial mode
+      # In any other mode, it's a parse error and should be ignored
+      return unless @mode.initial?
+
       node = DoctypeNode.new(doctype.name, doctype.public_id, doctype.system_id)
       @document.append_child(node)
 

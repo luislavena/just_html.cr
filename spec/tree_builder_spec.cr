@@ -17,6 +17,25 @@ describe JustHTML::TreeBuilder do
       doc.children.first.should be_a(JustHTML::DoctypeNode)
     end
 
+    it "ignores duplicate DOCTYPE tokens" do
+      # HTML5 spec: DOCTYPE after initial mode should be ignored
+      html = "<!DOCTYPE html><!DOCTYPE html>"
+      doc = JustHTML::TreeBuilder.parse(html)
+
+      # Should only have one DOCTYPE node
+      doctype_count = doc.children.count(&.is_a?(JustHTML::DoctypeNode))
+      doctype_count.should eq(1)
+    end
+
+    it "ignores DOCTYPE after html element" do
+      html = "<html><!DOCTYPE html>"
+      doc = JustHTML::TreeBuilder.parse(html)
+
+      # No DOCTYPE nodes should exist (none was valid before html)
+      doctype_count = doc.children.count(&.is_a?(JustHTML::DoctypeNode))
+      doctype_count.should eq(0)
+    end
+
     it "creates implicit html/head/body elements" do
       html = "<p>Hello</p>"
       doc = JustHTML::TreeBuilder.parse(html)
