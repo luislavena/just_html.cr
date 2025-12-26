@@ -151,6 +151,13 @@ module JustHTML
       return if data.empty?
 
       if current = current_node
+        # Check if foster parenting is needed for text
+        if @foster_parenting && in_table_context?
+          text_node = Text.new(data)
+          foster_parent_node(text_node)
+          return
+        end
+
         # Determine the target container (template_contents or regular children)
         if current.name == "template" && (template_contents = current.template_contents)
           target = template_contents
@@ -192,7 +199,61 @@ module JustHTML
     end
 
     def process_eof : Nil
-      # Close any remaining open elements
+      # Process EOF through mode-specific handling to ensure required elements exist
+      loop do
+        case @mode
+        when .initial?
+          @mode = InsertionMode::BeforeHtml
+        when .before_html?
+          # Create implicit html element
+          html = Element.new("html")
+          @document.append_child(html)
+          @open_elements << html
+          @mode = InsertionMode::BeforeHead
+        when .before_head?
+          # Create implicit head element
+          head = Element.new("head")
+          insert_element(head)
+          @head_element = head
+          @mode = InsertionMode::InHead
+        when .in_head?, .in_head_noscript?
+          # Pop head and move to AfterHead
+          @open_elements.pop if @open_elements.last?.try(&.name) == "head"
+          @mode = InsertionMode::AfterHead
+        when .after_head?
+          # Create implicit body element
+          body = Element.new("body")
+          insert_element(body)
+          @mode = InsertionMode::InBody
+        when .text?
+          # Pop current element, return to original mode
+          @open_elements.pop
+          @mode = @original_mode || InsertionMode::InBody
+        when .in_template?
+          # Handle EOF in template - pop until template
+          if @open_elements.any? { |el| el.name == "template" }
+            pop_until("template")
+            clear_active_formatting_elements_to_last_marker
+            @template_insertion_modes.pop if @template_insertion_modes.size > 0
+            reset_insertion_mode
+          else
+            break
+          end
+        when .in_body?, .in_table?, .in_table_body?, .in_row?, .in_cell?,
+             .in_select?, .in_select_in_table?, .in_column_group?, .in_caption?,
+             .in_frameset?, .after_frameset?, .after_after_frameset?
+          # Transition to after body for final cleanup
+          @mode = InsertionMode::AfterBody
+        when .after_body?
+          @mode = InsertionMode::AfterAfterBody
+        when .after_after_body?
+          # Final state - we're done
+          break
+        else
+          break
+        end
+      end
+      # Clear the stack at the end
       @open_elements.clear
     end
 
@@ -295,7 +356,8 @@ module JustHTML
             @mode = InsertionMode::InHead
             process_start_tag(tag)
             @open_elements.delete(head)
-            @mode = InsertionMode::AfterHead
+            # Only reset mode if we're still in InHead (script/style go to Text mode)
+            @mode = InsertionMode::AfterHead if @mode.in_head?
           end
         else
           # Insert implicit body
@@ -353,27 +415,27 @@ module JustHTML
         @mode = InsertionMode::InTemplate
         @template_insertion_modes << InsertionMode::InTemplate
       when "col"
-        @template_insertion_modes.pop
+        @template_insertion_modes.pop if @template_insertion_modes.size > 0
         @template_insertion_modes << InsertionMode::InColumnGroup
         @mode = InsertionMode::InColumnGroup
         process_start_tag(tag)
       when "caption", "colgroup", "tbody", "tfoot", "thead"
-        @template_insertion_modes.pop
+        @template_insertion_modes.pop if @template_insertion_modes.size > 0
         @template_insertion_modes << InsertionMode::InTable
         @mode = InsertionMode::InTable
         process_start_tag(tag)
       when "tr"
-        @template_insertion_modes.pop
+        @template_insertion_modes.pop if @template_insertion_modes.size > 0
         @template_insertion_modes << InsertionMode::InTableBody
         @mode = InsertionMode::InTableBody
         process_start_tag(tag)
       when "td", "th"
-        @template_insertion_modes.pop
+        @template_insertion_modes.pop if @template_insertion_modes.size > 0
         @template_insertion_modes << InsertionMode::InRow
         @mode = InsertionMode::InRow
         process_start_tag(tag)
       else
-        @template_insertion_modes.pop
+        @template_insertion_modes.pop if @template_insertion_modes.size > 0
         @template_insertion_modes << InsertionMode::InBody
         @mode = InsertionMode::InBody
         process_start_tag(tag)
@@ -751,7 +813,7 @@ module JustHTML
             generate_implied_end_tags
             pop_until("template")
             clear_active_formatting_elements_to_last_marker
-            @template_insertion_modes.pop
+            @template_insertion_modes.pop if @template_insertion_modes.size > 0
             reset_insertion_mode
           end
         elsif name == "head"
@@ -793,7 +855,7 @@ module JustHTML
             generate_implied_end_tags
             pop_until("template")
             clear_active_formatting_elements_to_last_marker
-            @template_insertion_modes.pop
+            @template_insertion_modes.pop if @template_insertion_modes.size > 0
             reset_insertion_mode
           end
         else
@@ -890,7 +952,7 @@ module JustHTML
           generate_implied_end_tags
           pop_until("template")
           clear_active_formatting_elements_to_last_marker
-          @template_insertion_modes.pop
+          @template_insertion_modes.pop if @template_insertion_modes.size > 0
           reset_insertion_mode
         end
       when "br"
@@ -1329,12 +1391,15 @@ module JustHTML
           break if node == formatting_element
 
           # Step 14.4: If inner loop counter > 3 and node is in active formatting, remove it
-          if inner_loop_counter > 3
-            @active_formatting_elements.reject! { |e| e == node }
+          node_in_active = @active_formatting_elements.index { |e| e == node }
+          if inner_loop_counter > 3 && node_in_active
+            @active_formatting_elements.delete_at(node_in_active)
+            # Adjust bookmark if we removed an entry before it
+            bookmark -= 1 if node_in_active < bookmark
+            node_in_active = nil
           end
 
           # Step 14.5: If node is not in active formatting elements, remove from stack and continue
-          node_in_active = @active_formatting_elements.index { |e| e == node }
           unless node_in_active
             @open_elements.delete_at(node_idx)
             furthest_block_idx -= 1 if furthest_block_idx > node_idx
