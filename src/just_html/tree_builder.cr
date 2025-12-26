@@ -1205,6 +1205,12 @@ module JustHTML
             @mode = InsertionMode::InTemplate
           end
           return
+        when "head"
+          # If head element and not last, switch to "in head" mode
+          unless last
+            @mode = InsertionMode::InHead
+            return
+          end
         when "body"
           @mode = InsertionMode::InBody
           return
