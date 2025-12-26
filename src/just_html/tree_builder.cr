@@ -38,6 +38,12 @@ module JustHTML
     # Formatting elements that use the adoption agency algorithm
     FORMATTING_ELEMENTS = {"a", "b", "big", "code", "em", "font", "i", "nobr", "s", "small", "strike", "strong", "tt", "u"}
 
+    # Elements that are targets for foster parenting
+    TABLE_FOSTER_TARGETS = {"table", "tbody", "tfoot", "thead", "tr"}
+
+    # Elements allowed as children of table-related elements (not foster parented)
+    TABLE_ALLOWED_CHILDREN = {"caption", "colgroup", "tbody", "tfoot", "thead", "tr", "td", "th", "script", "template", "style"}
+
     getter document : Document
     getter errors : Array(ParseError)
 
@@ -877,6 +883,41 @@ module JustHTML
           # This is already handled by reset_insertion_mode
           process_in_body_end_tag(tag)
         end
+      when .in_table?, .in_table_body?, .in_row?
+        # Handle table end tags
+        case name
+        when "table"
+          if has_element_in_table_scope?("table")
+            pop_until("table")
+            reset_insertion_mode
+          end
+        when "body", "caption", "col", "colgroup", "html", "tbody", "td", "tfoot", "th", "thead", "tr"
+          # Ignore these end tags in table context
+        else
+          # For other end tags, process using in body rules with foster parenting
+          @foster_parenting = true
+          process_in_body_end_tag(tag)
+          @foster_parenting = false
+        end
+      when .in_cell?
+        case name
+        when "td", "th"
+          if has_element_in_table_scope?(name)
+            generate_implied_end_tags
+            pop_until(name)
+            clear_active_formatting_elements_to_last_marker
+            @mode = InsertionMode::InRow
+          end
+        when "body", "caption", "col", "colgroup", "html"
+          # Ignore
+        when "table", "tbody", "tfoot", "thead", "tr"
+          if has_element_in_table_scope?(name)
+            close_cell
+            process_end_tag(tag)
+          end
+        else
+          process_in_body_end_tag(tag)
+        end
       else
         # Default behavior
         pop_until(name)
@@ -1042,6 +1083,16 @@ module JustHTML
       else
         false
       end
+    end
+
+    # Check if foster parenting should occur for a given target element
+    # Similar to Python's _should_foster_parenting
+    private def should_foster_parenting?(target : Element, for_tag : String? = nil, is_text : Bool = false) : Bool
+      return false unless @foster_parenting
+      return false unless TABLE_FOSTER_TARGETS.includes?(target.name)
+      return true if is_text
+      return false if for_tag && TABLE_ALLOWED_CHILDREN.includes?(for_tag)
+      true
     end
 
     private def current_node : Element?
@@ -1453,13 +1504,17 @@ module JustHTML
 
         # Step 15: Insert last node at appropriate place for common ancestor
         if common_ancestor
-          # If foster parenting, do that; otherwise insert in common ancestor
-          if @foster_parenting
+          # Remove last_node from its current parent first
+          if parent = last_node.parent
+            parent.children.delete(last_node)
+          end
+
+          # Check if we should foster parent based on common ancestor
+          # This is key for table foster parenting during AAA
+          last_node_name = last_node.is_a?(Element) ? last_node.name : nil
+          if should_foster_parenting?(common_ancestor, last_node_name)
             foster_parent_node(last_node)
           else
-            if parent = last_node.parent
-              parent.children.delete(last_node)
-            end
             # Insert into template_contents if common ancestor is a template
             if common_ancestor.name == "template" && (template_contents = common_ancestor.template_contents)
               template_contents.append_child(last_node)
@@ -1473,11 +1528,11 @@ module JustHTML
         new_formatting_element = Element.new(formatting_element.name, formatting_element.attrs.dup)
 
         # Step 17: Take all children of furthest block and append to new element
-        furthest_block.children.each do |child|
+        while child = furthest_block.children.first?
+          furthest_block.children.shift
           child.parent = new_formatting_element
+          new_formatting_element.children << child
         end
-        new_formatting_element.children.concat(furthest_block.children)
-        furthest_block.children.clear
 
         # Step 18: Append new element to furthest block
         furthest_block.append_child(new_formatting_element)
