@@ -181,6 +181,14 @@ describe JustHTML::TreeBuilder do
       script.text_content.should eq("if (a < b) { x = 1; }")
     end
 
+    it "handles script with HTML comment escape" do
+      # HTML5 spec: script content with <!-- should enter escaped mode
+      # and the first </script> inside should be ignored
+      doc = JustHTML.parse("<script type=\"data\"><!--<script></script></script>")
+      script = doc.query_selector("script").not_nil!
+      script.text_content.should eq("<!--<script></script>")
+    end
+
     it "preserves style content" do
       doc = JustHTML.parse("<style>p { color: red; }</style>")
       style = doc.query_selector("style").not_nil!

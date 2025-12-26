@@ -332,7 +332,9 @@ module JustHTML
         when "title", "style", "script", "noscript", "noframes"
           element = create_element(tag)
           insert_element(element)
-          if name == "script" || name == "style" || name == "noframes"
+          if name == "script"
+            @tokenizer.try(&.set_state(Tokenizer::State::ScriptData))
+          elsif name == "style" || name == "noframes"
             @tokenizer.try(&.set_state(Tokenizer::State::RAWTEXT))
           end
           @original_mode = @mode
@@ -1867,7 +1869,11 @@ module JustHTML
       end
 
       case name
-      when "script", "style"
+      when "script"
+        element = Element.new(name, tag.attrs, namespace)
+        insert_element(element)
+        @tokenizer.try(&.set_state(Tokenizer::State::ScriptData))
+      when "style"
         element = Element.new(name, tag.attrs, namespace)
         insert_element(element)
         @tokenizer.try(&.set_state(Tokenizer::State::RAWTEXT))
