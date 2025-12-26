@@ -114,8 +114,8 @@ module JustHTML
     # Current comment/doctype being built
     @current_comment : String::Builder
     @current_doctype_name : String::Builder
-    @current_doctype_public : String::Builder
-    @current_doctype_system : String::Builder
+    @current_doctype_public : String::Builder?
+    @current_doctype_system : String::Builder?
     @current_doctype_force_quirks : Bool
 
     # Text buffer for character tokens
@@ -150,8 +150,8 @@ module JustHTML
 
       @current_comment = String::Builder.new
       @current_doctype_name = String::Builder.new
-      @current_doctype_public = String::Builder.new
-      @current_doctype_system = String::Builder.new
+      @current_doctype_public = nil
+      @current_doctype_system = nil
       @current_doctype_force_quirks = false
 
       @text_buffer = String::Builder.new
@@ -1680,7 +1680,7 @@ module JustHTML
         false
       when '\0'
         add_error("unexpected-null-character")
-        @current_doctype_public << '\uFFFD'
+        @current_doctype_public.not_nil! << '\uFFFD'
         false
       when '>'
         add_error("abrupt-doctype-public-identifier")
@@ -1689,7 +1689,7 @@ module JustHTML
         @state = State::Data
         false
       else
-        @current_doctype_public << c
+        @current_doctype_public.not_nil! << c
         false
       end
     end
@@ -1706,7 +1706,7 @@ module JustHTML
         false
       when '\0'
         add_error("unexpected-null-character")
-        @current_doctype_public << '\uFFFD'
+        @current_doctype_public.not_nil! << '\uFFFD'
         false
       when '>'
         add_error("abrupt-doctype-public-identifier")
@@ -1715,7 +1715,7 @@ module JustHTML
         @state = State::Data
         false
       else
-        @current_doctype_public << c
+        @current_doctype_public.not_nil! << c
         false
       end
     end
@@ -1862,7 +1862,7 @@ module JustHTML
         false
       when '\0'
         add_error("unexpected-null-character")
-        @current_doctype_system << '\uFFFD'
+        @current_doctype_system.not_nil! << '\uFFFD'
         false
       when '>'
         add_error("abrupt-doctype-system-identifier")
@@ -1871,7 +1871,7 @@ module JustHTML
         @state = State::Data
         false
       else
-        @current_doctype_system << c
+        @current_doctype_system.not_nil! << c
         false
       end
     end
@@ -1888,7 +1888,7 @@ module JustHTML
         false
       when '\0'
         add_error("unexpected-null-character")
-        @current_doctype_system << '\uFFFD'
+        @current_doctype_system.not_nil! << '\uFFFD'
         false
       when '>'
         add_error("abrupt-doctype-system-identifier")
@@ -1897,7 +1897,7 @@ module JustHTML
         @state = State::Data
         false
       else
-        @current_doctype_system << c
+        @current_doctype_system.not_nil! << c
         false
       end
     end
@@ -2323,17 +2323,15 @@ module JustHTML
     private def emit_doctype : Nil
       name = @current_doctype_name.to_s
       name = nil if name.empty?
-      public_id = @current_doctype_public.to_s
-      public_id = nil if public_id.empty?
-      system_id = @current_doctype_system.to_s
-      system_id = nil if system_id.empty?
+      public_id = @current_doctype_public.try(&.to_s)
+      system_id = @current_doctype_system.try(&.to_s)
       doctype = Doctype.new(name, public_id, system_id, @current_doctype_force_quirks)
       @sink.process_doctype(doctype)
 
       # Reset doctype state
       @current_doctype_name = String::Builder.new
-      @current_doctype_public = String::Builder.new
-      @current_doctype_system = String::Builder.new
+      @current_doctype_public = nil
+      @current_doctype_system = nil
       @current_doctype_force_quirks = false
     end
 
