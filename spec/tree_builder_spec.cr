@@ -260,6 +260,36 @@ describe JustHTML::TreeBuilder do
     end
   end
 
+  describe "foreign content handling" do
+    it "keeps font without special attrs in SVG namespace" do
+      doc = JustHTML.parse("<svg><font></font></svg>")
+      svg = doc.query_selector("svg").not_nil!
+      font = svg.children.find { |c| c.is_a?(JustHTML::Element) }.as(JustHTML::Element)
+      font.name.should eq("font")
+      font.namespace.should eq("svg")
+    end
+
+    it "breaks font with size attr out of SVG" do
+      doc = JustHTML.parse("<svg><font size=4></font></svg>")
+      body = doc.query_selector("body").not_nil!
+      svg = doc.query_selector("svg").not_nil!
+      # Font should be sibling of svg, not child
+      svg.children.select(&.is_a?(JustHTML::Element)).size.should eq(0)
+      font = body.query_selector("font")
+      font.should_not be_nil
+      font.not_nil!["size"].should eq("4")
+    end
+
+    it "breaks font with color attr out of SVG" do
+      doc = JustHTML.parse("<svg><font color=red></font></svg>")
+      body = doc.query_selector("body").not_nil!
+      svg = doc.query_selector("svg").not_nil!
+      svg.children.select(&.is_a?(JustHTML::Element)).size.should eq(0)
+      font = body.query_selector("font")
+      font.should_not be_nil
+    end
+  end
+
   describe "entity handling" do
     it "decodes named entities" do
       doc = JustHTML.parse("<p>&amp;&lt;&gt;&quot;</p>")

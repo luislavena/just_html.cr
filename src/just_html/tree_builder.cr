@@ -607,6 +607,28 @@ module JustHTML
     private def process_in_body_start_tag(tag : Tag) : Nil
       name = tag.name
 
+      # Check if we're in foreign content (SVG or MathML)
+      current = current_node
+      if current && (current.namespace == "svg" || current.namespace == "mathml")
+        if breaks_out_of_foreign_content?(tag, current.namespace)
+          # Pop elements until we exit foreign content
+          while cn = current_node
+            break if cn.namespace == "html"
+            @open_elements.pop
+          end
+          # Process the tag in HTML context (fall through to normal handling)
+        elsif !is_html_integration_point?(current)
+          # Stay in foreign content - create element in same namespace
+          element = create_element(tag, current.namespace)
+          insert_element(element)
+          if tag.self_closing? || Constants::VOID_ELEMENTS.includes?(name)
+            @open_elements.pop
+          end
+          return
+        end
+        # If at HTML integration point, fall through to HTML handling
+      end
+
       case name
       when "html"
         if html = @open_elements.first?
@@ -1586,6 +1608,52 @@ module JustHTML
       elsif html = @open_elements.first?
         html.append_child(node)
       end
+    end
+
+    # Check if element is an HTML integration point (allows HTML content inside foreign content)
+    private def is_html_integration_point?(element : Element?) : Bool
+      return false unless element
+
+      # SVG foreignObject, desc, title are integration points
+      if element.namespace == "svg"
+        return {"foreignObject", "desc", "title"}.includes?(element.name)
+      end
+
+      # MathML annotation-xml with specific attributes
+      if element.namespace == "mathml"
+        if element.name == "annotation-xml"
+          encoding = element["encoding"]
+          if encoding
+            enc_lower = encoding.downcase
+            return enc_lower == "text/html" || enc_lower == "application/xhtml+xml"
+          end
+        end
+        # MathML mi, mo, mn, ms, mtext are integration points
+        return {"mi", "mo", "mn", "ms", "mtext"}.includes?(element.name)
+      end
+
+      false
+    end
+
+    # Check if a tag should break out of foreign content
+    private def breaks_out_of_foreign_content?(tag : Tag, current_namespace : String) : Bool
+      return false if current_namespace == "html"
+
+      name = tag.name
+      attrs = tag.attrs
+
+      # Font element with color, face, or size attribute breaks out
+      if name == "font"
+        return attrs.has_key?("color") || attrs.has_key?("face") || attrs.has_key?("size")
+      end
+
+      # These elements always break out
+      break_out_tags = {"b", "big", "blockquote", "body", "br", "center", "code", "dd", "div",
+                        "dl", "dt", "em", "embed", "h1", "h2", "h3", "h4", "h5", "h6", "head",
+                        "hr", "i", "img", "li", "listing", "menu", "meta", "nobr", "ol", "p",
+                        "pre", "ruby", "s", "small", "span", "strong", "strike", "sub", "sup",
+                        "table", "tt", "u", "ul", "var"}
+      return break_out_tags.includes?(name)
     end
   end
 
