@@ -211,6 +211,26 @@ module JustHTML
       when .rawtext_less_than_sign?            then state_rawtext_less_than_sign
       when .rawtext_end_tag_open?              then state_rawtext_end_tag_open
       when .rawtext_end_tag_name?              then state_rawtext_end_tag_name
+      when .script_data_less_than_sign?        then state_script_data_less_than_sign
+      when .script_data_end_tag_open?          then state_script_data_end_tag_open
+      when .script_data_end_tag_name?          then state_script_data_end_tag_name
+      when .script_data_escape_start?          then state_script_data_escape_start
+      when .script_data_escape_start_dash?     then state_script_data_escape_start_dash
+      when .script_data_escaped?               then state_script_data_escaped
+      when .script_data_escaped_dash?          then state_script_data_escaped_dash
+      when .script_data_escaped_dash_dash?     then state_script_data_escaped_dash_dash
+      when .script_data_escaped_less_than_sign? then state_script_data_escaped_less_than_sign
+      when .script_data_escaped_end_tag_open?  then state_script_data_escaped_end_tag_open
+      when .script_data_escaped_end_tag_name?  then state_script_data_escaped_end_tag_name
+      when .script_data_double_escape_start?   then state_script_data_double_escape_start
+      when .script_data_double_escaped?        then state_script_data_double_escaped
+      when .script_data_double_escaped_dash?   then state_script_data_double_escaped_dash
+      when .script_data_double_escaped_dash_dash? then state_script_data_double_escaped_dash_dash
+      when .script_data_double_escaped_less_than_sign? then state_script_data_double_escaped_less_than_sign
+      when .script_data_double_escape_end?     then state_script_data_double_escape_end
+      when .cdata_section?                     then state_cdata_section
+      when .cdata_section_bracket?             then state_cdata_section_bracket
+      when .cdata_section_end?                 then state_cdata_section_end
       when .before_attribute_name?             then state_before_attribute_name
       when .attribute_name?                    then state_attribute_name
       when .after_attribute_name?              then state_after_attribute_name
@@ -586,6 +606,433 @@ module JustHTML
       @state = State::RAWTEXT
       @reconsume = true
       false
+    end
+
+    private def state_script_data_less_than_sign : Bool
+      case c = @current_char
+      when '/'
+        @temp_buffer = String::Builder.new
+        @state = State::ScriptDataEndTagOpen
+        false
+      when '!'
+        @text_buffer << '<'
+        @text_buffer << '!'
+        @state = State::ScriptDataEscapeStart
+        false
+      else
+        @text_buffer << '<'
+        @state = State::ScriptData
+        @reconsume = true
+        false
+      end
+    end
+
+    private def state_script_data_end_tag_open : Bool
+      c = @current_char
+      if c && c.ascii_letter?
+        @current_tag_name = String::Builder.new
+        @current_tag_name_cached = nil
+        @current_tag_kind = Tag::Kind::End
+        @current_tag_attrs = {} of String => String?
+        @current_tag_self_closing = false
+        @state = State::ScriptDataEndTagName
+        @reconsume = true
+        false
+      else
+        @text_buffer << '<'
+        @text_buffer << '/'
+        @state = State::ScriptData
+        @reconsume = true
+        false
+      end
+    end
+
+    private def state_script_data_end_tag_name : Bool
+      c = @current_char
+      if c == '\t' || c == '\n' || c == '\f' || c == ' '
+        if is_appropriate_end_tag?
+          @state = State::BeforeAttributeName
+          return false
+        end
+      elsif c == '/'
+        if is_appropriate_end_tag?
+          @state = State::SelfClosingStartTag
+          return false
+        end
+      elsif c == '>'
+        if is_appropriate_end_tag?
+          flush_text
+          emit_current_tag
+          @state = State::Data
+          return false
+        end
+      elsif c && c.ascii_letter?
+        @current_tag_name << c.downcase
+        @temp_buffer << c
+        return false
+      end
+
+      @text_buffer << '<'
+      @text_buffer << '/'
+      @text_buffer << @temp_buffer.to_s
+      @state = State::ScriptData
+      @reconsume = true
+      false
+    end
+
+    private def state_script_data_escape_start : Bool
+      case c = @current_char
+      when '-'
+        @text_buffer << '-'
+        @state = State::ScriptDataEscapeStartDash
+        false
+      else
+        @state = State::ScriptData
+        @reconsume = true
+        false
+      end
+    end
+
+    private def state_script_data_escape_start_dash : Bool
+      case c = @current_char
+      when '-'
+        @text_buffer << '-'
+        @state = State::ScriptDataEscapedDashDash
+        false
+      else
+        @state = State::ScriptData
+        @reconsume = true
+        false
+      end
+    end
+
+    private def state_script_data_escaped : Bool
+      case c = @current_char
+      when nil
+        add_error("eof-in-script-html-comment-like-text")
+        flush_text
+        true
+      when '-'
+        @text_buffer << '-'
+        @state = State::ScriptDataEscapedDash
+        false
+      when '<'
+        @state = State::ScriptDataEscapedLessThanSign
+        false
+      when '\0'
+        add_error("unexpected-null-character")
+        @text_buffer << '\uFFFD'
+        false
+      else
+        @text_buffer << c
+        false
+      end
+    end
+
+    private def state_script_data_escaped_dash : Bool
+      case c = @current_char
+      when nil
+        add_error("eof-in-script-html-comment-like-text")
+        flush_text
+        true
+      when '-'
+        @text_buffer << '-'
+        @state = State::ScriptDataEscapedDashDash
+        false
+      when '<'
+        @state = State::ScriptDataEscapedLessThanSign
+        false
+      when '\0'
+        add_error("unexpected-null-character")
+        @text_buffer << '\uFFFD'
+        @state = State::ScriptDataEscaped
+        false
+      else
+        @text_buffer << c
+        @state = State::ScriptDataEscaped
+        false
+      end
+    end
+
+    private def state_script_data_escaped_dash_dash : Bool
+      case c = @current_char
+      when nil
+        add_error("eof-in-script-html-comment-like-text")
+        flush_text
+        true
+      when '-'
+        @text_buffer << '-'
+        false
+      when '<'
+        @state = State::ScriptDataEscapedLessThanSign
+        false
+      when '>'
+        @text_buffer << '>'
+        @state = State::ScriptData
+        false
+      when '\0'
+        add_error("unexpected-null-character")
+        @text_buffer << '\uFFFD'
+        @state = State::ScriptDataEscaped
+        false
+      else
+        @text_buffer << c
+        @state = State::ScriptDataEscaped
+        false
+      end
+    end
+
+    private def state_script_data_escaped_less_than_sign : Bool
+      c = @current_char
+      if c == '/'
+        @temp_buffer = String::Builder.new
+        @state = State::ScriptDataEscapedEndTagOpen
+        false
+      elsif c && c.ascii_letter?
+        @temp_buffer = String::Builder.new
+        @text_buffer << '<'
+        @state = State::ScriptDataDoubleEscapeStart
+        @reconsume = true
+        false
+      else
+        @text_buffer << '<'
+        @state = State::ScriptDataEscaped
+        @reconsume = true
+        false
+      end
+    end
+
+    private def state_script_data_escaped_end_tag_open : Bool
+      c = @current_char
+      if c && c.ascii_letter?
+        @current_tag_name = String::Builder.new
+        @current_tag_name_cached = nil
+        @current_tag_kind = Tag::Kind::End
+        @current_tag_attrs = {} of String => String?
+        @current_tag_self_closing = false
+        @state = State::ScriptDataEscapedEndTagName
+        @reconsume = true
+        false
+      else
+        @text_buffer << '<'
+        @text_buffer << '/'
+        @state = State::ScriptDataEscaped
+        @reconsume = true
+        false
+      end
+    end
+
+    private def state_script_data_escaped_end_tag_name : Bool
+      c = @current_char
+      if c == '\t' || c == '\n' || c == '\f' || c == ' '
+        if is_appropriate_end_tag?
+          @state = State::BeforeAttributeName
+          return false
+        end
+      elsif c == '/'
+        if is_appropriate_end_tag?
+          @state = State::SelfClosingStartTag
+          return false
+        end
+      elsif c == '>'
+        if is_appropriate_end_tag?
+          flush_text
+          emit_current_tag
+          @state = State::Data
+          return false
+        end
+      elsif c && c.ascii_letter?
+        @current_tag_name << c.downcase
+        @temp_buffer << c
+        return false
+      end
+
+      @text_buffer << '<'
+      @text_buffer << '/'
+      @text_buffer << @temp_buffer.to_s
+      @state = State::ScriptDataEscaped
+      @reconsume = true
+      false
+    end
+
+    private def state_script_data_double_escape_start : Bool
+      c = @current_char
+      if c == '\t' || c == '\n' || c == '\f' || c == ' ' || c == '/' || c == '>'
+        @text_buffer << c
+        if @temp_buffer.to_s == "script"
+          @state = State::ScriptDataDoubleEscaped
+        else
+          @state = State::ScriptDataEscaped
+        end
+        false
+      elsif c && c.ascii_letter?
+        @temp_buffer << c.downcase
+        @text_buffer << c
+        false
+      else
+        @state = State::ScriptDataEscaped
+        @reconsume = true
+        false
+      end
+    end
+
+    private def state_script_data_double_escaped : Bool
+      case c = @current_char
+      when nil
+        add_error("eof-in-script-html-comment-like-text")
+        flush_text
+        true
+      when '-'
+        @text_buffer << '-'
+        @state = State::ScriptDataDoubleEscapedDash
+        false
+      when '<'
+        @text_buffer << '<'
+        @state = State::ScriptDataDoubleEscapedLessThanSign
+        false
+      when '\0'
+        add_error("unexpected-null-character")
+        @text_buffer << '\uFFFD'
+        false
+      else
+        @text_buffer << c
+        false
+      end
+    end
+
+    private def state_script_data_double_escaped_dash : Bool
+      case c = @current_char
+      when nil
+        add_error("eof-in-script-html-comment-like-text")
+        flush_text
+        true
+      when '-'
+        @text_buffer << '-'
+        @state = State::ScriptDataDoubleEscapedDashDash
+        false
+      when '<'
+        @text_buffer << '<'
+        @state = State::ScriptDataDoubleEscapedLessThanSign
+        false
+      when '\0'
+        add_error("unexpected-null-character")
+        @text_buffer << '\uFFFD'
+        @state = State::ScriptDataDoubleEscaped
+        false
+      else
+        @text_buffer << c
+        @state = State::ScriptDataDoubleEscaped
+        false
+      end
+    end
+
+    private def state_script_data_double_escaped_dash_dash : Bool
+      case c = @current_char
+      when nil
+        add_error("eof-in-script-html-comment-like-text")
+        flush_text
+        true
+      when '-'
+        @text_buffer << '-'
+        false
+      when '<'
+        @text_buffer << '<'
+        @state = State::ScriptDataDoubleEscapedLessThanSign
+        false
+      when '>'
+        @text_buffer << '>'
+        @state = State::ScriptData
+        false
+      when '\0'
+        add_error("unexpected-null-character")
+        @text_buffer << '\uFFFD'
+        @state = State::ScriptDataDoubleEscaped
+        false
+      else
+        @text_buffer << c
+        @state = State::ScriptDataDoubleEscaped
+        false
+      end
+    end
+
+    private def state_script_data_double_escaped_less_than_sign : Bool
+      case c = @current_char
+      when '/'
+        @temp_buffer = String::Builder.new
+        @text_buffer << '/'
+        @state = State::ScriptDataDoubleEscapeEnd
+        false
+      else
+        @state = State::ScriptDataDoubleEscaped
+        @reconsume = true
+        false
+      end
+    end
+
+    private def state_script_data_double_escape_end : Bool
+      c = @current_char
+      if c == '\t' || c == '\n' || c == '\f' || c == ' ' || c == '/' || c == '>'
+        @text_buffer << c
+        if @temp_buffer.to_s == "script"
+          @state = State::ScriptDataEscaped
+        else
+          @state = State::ScriptDataDoubleEscaped
+        end
+        false
+      elsif c && c.ascii_letter?
+        @temp_buffer << c.downcase
+        @text_buffer << c
+        false
+      else
+        @state = State::ScriptDataDoubleEscaped
+        @reconsume = true
+        false
+      end
+    end
+
+    private def state_cdata_section : Bool
+      case c = @current_char
+      when nil
+        add_error("eof-in-cdata")
+        flush_text
+        true
+      when ']'
+        @state = State::CDATASectionBracket
+        false
+      else
+        @text_buffer << c
+        false
+      end
+    end
+
+    private def state_cdata_section_bracket : Bool
+      case c = @current_char
+      when ']'
+        @state = State::CDATASectionEnd
+        false
+      else
+        @text_buffer << ']'
+        @state = State::CDATASection
+        @reconsume = true
+        false
+      end
+    end
+
+    private def state_cdata_section_end : Bool
+      case c = @current_char
+      when ']'
+        @text_buffer << ']'
+        false
+      when '>'
+        @state = State::Data
+        false
+      else
+        @text_buffer << ']'
+        @text_buffer << ']'
+        @state = State::CDATASection
+        @reconsume = true
+        false
+      end
     end
 
     private def state_before_attribute_name : Bool

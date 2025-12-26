@@ -296,13 +296,10 @@ module HTML5LibTests
         tokenizer.set_state(JustHTML::Tokenizer::State::RCDATA)
       when :rawtext
         tokenizer.set_state(JustHTML::Tokenizer::State::RAWTEXT)
-      # NOTE: :script_data not fully supported - tokenizer lacks ScriptDataLessThanSign
-      # and related escape state handlers, causing infinite loop on '<' in script data
-      # when :script_data
-      #   tokenizer.set_state(JustHTML::Tokenizer::State::ScriptData)
-      # NOTE: :cdata_section not supported - tokenizer lacks CDATASection state handler
-      # when :cdata_section
-      #   tokenizer.set_state(JustHTML::Tokenizer::State::CDATASection)
+      when :script_data
+        tokenizer.set_state(JustHTML::Tokenizer::State::ScriptData)
+      when :cdata_section
+        tokenizer.set_state(JustHTML::Tokenizer::State::CDATASection)
       end
 
       # Set last start tag name if provided
