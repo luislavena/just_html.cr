@@ -22,7 +22,29 @@ macro generate_tree_construction_tests(file_path)
           {% if test_script.strip == "script-on" %}
             pending "test #" + {{test_num}} + " (scripting-enabled test not supported)"
           {% elsif test_fragment.strip != "" %}
-            pending "test #" + {{test_num}} + " (fragment parsing not yet supported)"
+            it "test #" + {{test_num}} do
+              input = {{test_input}}
+              expected = {{test_expected}}
+              fragment_context = {{test_fragment}}
+
+              # Parse fragment context - handle "svg path", "math mi", or just "body"
+              parts = fragment_context.strip.split(' ', 2)
+              if parts.size == 2
+                namespace = parts[0]
+                namespace = "mathml" if namespace == "math"
+                context_name = parts[1]
+              else
+                namespace = "html"
+                context_name = parts[0]
+              end
+
+              # Parse fragment and serialize
+              doc = JustHTML.parse_fragment(input, context_name, namespace)
+              actual = HTML5LibTestData.serialize_to_test_format(doc)
+
+              # Compare
+              actual.should eq(expected)
+            end
           {% else %}
             it "test #" + {{test_num}} do
               input = {{test_input}}
