@@ -1593,12 +1593,34 @@ module JustHTML
         if parent = table.parent
           # Insert before the table
           idx = parent.children.index(table) || parent.children.size
+
+          # If inserting text and previous sibling is text, merge them
+          if node.is_a?(Text) && idx > 0
+            if prev = parent.children[idx - 1]?
+              if prev.is_a?(Text)
+                prev.data += node.data
+                return
+              end
+            end
+          end
+
           node.parent = parent
           parent.children.insert(idx, node)
           return
         elsif table_idx > 0
           # Insert as last child of element before table in stack
           foster_parent = @open_elements[table_idx - 1]
+
+          # If inserting text and last child is text, merge them
+          if node.is_a?(Text)
+            if last = foster_parent.children.last?
+              if last.is_a?(Text)
+                last.data += node.data
+                return
+              end
+            end
+          end
+
           foster_parent.append_child(node)
           return
         end
@@ -1606,7 +1628,12 @@ module JustHTML
 
       # Fallback: insert in body or html
       if body = @open_elements.find { |el| el.name == "body" }
-        body.append_child(node)
+        # Merge text nodes if possible
+        if node.is_a?(Text) && (last = body.children.last?) && last.is_a?(Text)
+          last.data += node.data
+        else
+          body.append_child(node)
+        end
       elsif html = @open_elements.first?
         html.append_child(node)
       end

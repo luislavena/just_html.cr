@@ -155,7 +155,7 @@ module JustHTML
   end
 
   class Text < Node
-    getter data : String
+    property data : String
 
     def initialize(@data : String)
       super()
