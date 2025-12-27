@@ -1832,10 +1832,11 @@ module JustHTML
       current = current_node
       namespace = current.try(&.namespace) || "html"
 
-      # If we're in an HTML integration point and encounter table structure tags,
+      # If we're in an HTML integration point and encounter structural tags,
       # ignore them (they're parse errors in this context)
       if current && is_html_integration_point?(current) &&
-         {"tr", "td", "th", "tbody", "thead", "tfoot", "table", "caption", "col", "colgroup"}.includes?(tag.name)
+         {"tr", "td", "th", "tbody", "thead", "tfoot", "table", "caption", "col", "colgroup",
+          "html", "head", "body", "frameset"}.includes?(tag.name)
         # Ignore this tag
         return
       end
