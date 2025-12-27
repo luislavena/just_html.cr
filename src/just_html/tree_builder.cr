@@ -955,6 +955,24 @@ module JustHTML
     private def process_in_body_end_tag(tag : Tag) : Nil
       name = tag.name
 
+      # Check if we're in foreign content (SVG or MathML)
+      current = current_node
+      if current && (current.namespace == "svg" || current.namespace == "mathml")
+        # In foreign content, look for matching element in the foreign content part of the stack
+        # Pop elements in reverse order, looking for a match
+        (@open_elements.size - 1).downto(0) do |i|
+          el = @open_elements[i]
+          # If we find an HTML element, stop - fall through to normal processing
+          break if el.namespace == "html"
+          # If we find a matching element in foreign content, pop up to it
+          if el.name.downcase == name.downcase
+            ((@open_elements.size - 1) - i + 1).times { @open_elements.pop }
+            return
+          end
+        end
+        # No match in foreign content - fall through to normal HTML processing
+      end
+
       case name
       when "body"
         if has_element_in_scope?("body")
