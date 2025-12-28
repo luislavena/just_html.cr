@@ -171,6 +171,27 @@ module JustHTML
       when .in_body?
         # Reconstruct active formatting elements when in body mode
         reconstruct_active_formatting_elements
+      when .in_column_group?
+        # Whitespace is allowed, non-whitespace causes colgroup to close
+        ws_len = 0
+        data.each_char do |c|
+          break unless c == ' ' || c == '\t' || c == '\n' || c == '\f' || c == '\r'
+          ws_len += 1
+        end
+        if ws_len > 0
+          insert_text(data[0, ws_len])
+        end
+        if ws_len < data.size
+          # Has non-whitespace - pop colgroup and switch to InTable
+          current = current_node
+          if current && current.name == "colgroup"
+            @open_elements.pop
+            @mode = InsertionMode::InTable
+            process_characters(data[ws_len..])
+          end
+          # Otherwise ignore (template context)
+        end
+        return
       when .in_table?, .in_table_body?, .in_row?
         # In table modes, characters need special handling
         # According to the spec, we should process using "in body" rules but with foster parenting
@@ -464,12 +485,49 @@ module JustHTML
         process_in_cell_start_tag(tag)
       when .in_template?
         process_in_template_start_tag(tag)
+      when .in_column_group?
+        process_in_column_group_start_tag(tag)
       else
         # Default: insert the element
         element = create_element(tag)
         insert_element(element)
         if Constants::VOID_ELEMENTS.includes?(name)
           @open_elements.pop
+        end
+      end
+    end
+
+    private def process_in_column_group_start_tag(tag : Tag) : Nil
+      name = tag.name
+      current = current_node
+
+      case name
+      when "html"
+        # Process using in body rules
+        process_in_body_start_tag(tag)
+      when "col"
+        # Insert and pop (void element)
+        element = create_element(tag)
+        insert_element(element)
+        @open_elements.pop
+      when "template"
+        # Delegate to in head rules
+        @mode = InsertionMode::InHead
+        process_start_tag(tag)
+        # After template, stay in column group mode
+      else
+        # Anything else: if we're in a colgroup, pop it and switch to InTable
+        if current && current.name == "colgroup"
+          @open_elements.pop
+          @mode = InsertionMode::InTable
+          process_start_tag(tag)
+        elsif current && current.name == "template"
+          # In template column group context, ignore non-column content
+        else
+          # Pop colgroup and reprocess
+          @open_elements.pop if current
+          @mode = InsertionMode::InTable
+          process_start_tag(tag)
         end
       end
     end
@@ -998,6 +1056,32 @@ module JustHTML
           # For other end tags, process using the current template insertion mode
           # This is already handled by reset_insertion_mode
           process_in_body_end_tag(tag)
+        end
+      when .in_column_group?
+        case name
+        when "colgroup"
+          current = current_node
+          # Don't pop template element - only pop actual colgroup
+          if current && current.name == "colgroup"
+            @open_elements.pop
+            @mode = InsertionMode::InTable
+          end
+          # Otherwise ignore
+        when "col"
+          # Ignore end tag for col (void element)
+        when "template"
+          # Delegate to in head rules
+          @mode = InsertionMode::InHead
+          process_end_tag(tag)
+        else
+          # Pop colgroup and reprocess in table mode
+          current = current_node
+          if current && current.name == "colgroup"
+            @open_elements.pop
+            @mode = InsertionMode::InTable
+            process_end_tag(tag)
+          end
+          # Otherwise ignore
         end
       when .in_table?, .in_table_body?, .in_row?
         # Handle table end tags
