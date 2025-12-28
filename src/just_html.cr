@@ -18,7 +18,9 @@ module JustHTML
   end
 
   # Parse an HTML fragment string into a DocumentFragment
-  def self.parse_fragment(html : String, context : String = "body", context_namespace : String = "html", collect_errors : Bool = false) : DocumentFragment
-    FragmentBuilder.parse(html, context, context_namespace, collect_errors)
+  def self.parse_fragment(html : String, context : String = "body", context_namespace : String? = nil, collect_errors : Bool = false) : DocumentFragment
+    # Normalize "html" namespace to nil for consistency with spec
+    ns = context_namespace == "html" ? nil : context_namespace
+    TreeBuilder.parse_fragment(html, context, ns, collect_errors)
   end
 end

@@ -47,6 +47,9 @@ module JustHTML
     getter document : Document
     getter errors : Array(ParseError)
 
+    # Fragment context support
+    record FragmentContext, tag_name : String, namespace : String?
+
     @mode : InsertionMode
     @original_mode : InsertionMode?
     @open_elements : Array(Element)
@@ -58,11 +61,14 @@ module JustHTML
     @ignore_lf : Bool
     @tokenizer : Tokenizer?
     @foster_parenting : Bool
+    @fragment_context : FragmentContext?
+    @fragment_context_element : Element?
+    @pending_table_text : Array(String)
+    @table_text_original_mode : InsertionMode?
 
-    def initialize(@collect_errors : Bool = false)
+    def initialize(@collect_errors : Bool = false, @fragment_context : FragmentContext? = nil)
       @document = Document.new
       @errors = [] of ParseError
-      @mode = InsertionMode::Initial
       @original_mode = nil
       @open_elements = [] of Element
       @active_formatting_elements = [] of ActiveFormattingEntry
@@ -73,6 +79,77 @@ module JustHTML
       @ignore_lf = false
       @tokenizer = nil
       @foster_parenting = false
+      @fragment_context_element = nil
+      @pending_table_text = [] of String
+      @table_text_original_mode = nil
+
+      if fragment_ctx = @fragment_context
+        # Fragment parsing per HTML5 spec
+        root = Element.new("html")
+        @document.append_child(root)
+        @open_elements << root
+
+        namespace = fragment_ctx.namespace
+        context_name = fragment_ctx.tag_name.downcase
+
+        # Create a fake context element for foreign content
+        if namespace && namespace != "html"
+          adjusted_name = context_name
+          if namespace == "svg"
+            adjusted_name = adjust_svg_tag_name(context_name)
+          end
+          context_element = Element.new(adjusted_name, {} of String => String?, namespace)
+          root.append_child(context_element)
+          @open_elements << context_element
+          @fragment_context_element = context_element
+        end
+
+        # Set insertion mode based on context element name
+        @mode = case context_name
+        when "html"
+          InsertionMode::BeforeHead
+        when "tbody", "thead", "tfoot"
+          if namespace.nil? || namespace == "html"
+            InsertionMode::InTableBody
+          else
+            InsertionMode::InBody
+          end
+        when "tr"
+          if namespace.nil? || namespace == "html"
+            InsertionMode::InRow
+          else
+            InsertionMode::InBody
+          end
+        when "td", "th"
+          if namespace.nil? || namespace == "html"
+            InsertionMode::InCell
+          else
+            InsertionMode::InBody
+          end
+        when "caption"
+          if namespace.nil? || namespace == "html"
+            InsertionMode::InCaption
+          else
+            InsertionMode::InBody
+          end
+        when "colgroup"
+          if namespace.nil? || namespace == "html"
+            InsertionMode::InColumnGroup
+          else
+            InsertionMode::InBody
+          end
+        when "table"
+          if namespace.nil? || namespace == "html"
+            InsertionMode::InTable
+          else
+            InsertionMode::InBody
+          end
+        else
+          InsertionMode::InBody
+        end
+      else
+        @mode = InsertionMode::Initial
+      end
     end
 
     def self.parse(html : String, collect_errors : Bool = false) : Document
@@ -83,6 +160,45 @@ module JustHTML
       builder.document
     end
 
+    def self.parse_fragment(html : String, context : String = "body", context_namespace : String? = nil, collect_errors : Bool = false) : DocumentFragment
+      fragment_ctx = FragmentContext.new(context, context_namespace)
+      builder = new(collect_errors, fragment_ctx)
+      tokenizer = Tokenizer.new(builder, collect_errors)
+      builder.set_tokenizer(tokenizer)
+      tokenizer.run(html)
+      builder.finish_fragment
+    end
+
+    # Finish fragment parsing and return DocumentFragment
+    protected def finish_fragment : DocumentFragment
+      fragment = DocumentFragment.new
+
+      # Find the root html element
+      root = @document.children.find { |c| c.is_a?(Element) && c.as(Element).name == "html" }
+      return fragment unless root.is_a?(Element)
+
+      # If there's a fragment context element, move its children to the root first
+      if context_elem = @fragment_context_element
+        if context_elem.parent == root
+          context_elem.children.each do |child|
+            child.parent = root
+            root.children << child
+          end
+          context_elem.children.clear
+          root.children.delete(context_elem)
+        end
+      end
+
+      # Move all children of root to fragment
+      root.children.each do |child|
+        child.parent = fragment
+        fragment.children << child
+      end
+      root.children.clear
+
+      fragment
+    end
+
     def set_tokenizer(tokenizer : Tokenizer) : Nil
       @tokenizer = tokenizer
     end
@@ -90,6 +206,11 @@ module JustHTML
     # TokenSink implementation
 
     def process_tag(tag : Tag) : Nil
+      # Flush pending table text if we're in InTableText mode
+      if @mode.in_table_text?
+        flush_pending_table_text
+      end
+
       if tag.kind == :start
         process_start_tag(tag)
       else
@@ -98,6 +219,11 @@ module JustHTML
     end
 
     def process_comment(comment : CommentToken) : Nil
+      # Flush pending table text if we're in InTableText mode
+      if @mode.in_table_text?
+        flush_pending_table_text
+      end
+
       # In foreign content (SVG/MathML), CDATA sections are tokenized as comments
       # with data like "[CDATA[content]]". Convert these to text nodes.
       current = current_node
@@ -117,6 +243,11 @@ module JustHTML
     end
 
     def process_doctype(doctype : Doctype) : Nil
+      # Flush pending table text if we're in InTableText mode
+      if @mode.in_table_text?
+        flush_pending_table_text
+      end
+
       # DOCTYPE is only valid in Initial mode
       # In any other mode, it's a parse error and should be ignored
       return unless @mode.initial?
@@ -210,12 +341,15 @@ module JustHTML
         end
         return
       when .in_table?, .in_table_body?, .in_row?
-        # In table modes, characters need special handling
-        # According to the spec, we should process using "in body" rules but with foster parenting
-        @foster_parenting = true
-        reconstruct_active_formatting_elements
-        insert_text(data)
-        @foster_parenting = false
+        # In table modes, switch to InTableText to collect text
+        @pending_table_text.clear
+        @table_text_original_mode = @mode
+        @mode = InsertionMode::InTableText
+        process_characters(data)  # Reprocess in InTableText mode
+        return
+      when .in_table_text?
+        # Collect text in pending_table_text
+        @pending_table_text << data
         return
       when .in_cell?, .in_caption?
         # In cell/caption, process normally using in-body rules
@@ -290,6 +424,11 @@ module JustHTML
     end
 
     def process_eof : Nil
+      # Flush pending table text if we're in InTableText mode
+      if @mode.in_table_text?
+        flush_pending_table_text
+      end
+
       # Process EOF through mode-specific handling to ensure required elements exist
       loop do
         case @mode
@@ -509,6 +648,8 @@ module JustHTML
         process_in_row_start_tag(tag)
       when .in_cell?
         process_in_cell_start_tag(tag)
+      when .in_caption?
+        process_in_caption_start_tag(tag)
       when .in_template?
         process_in_template_start_tag(tag)
       when .in_column_group?
@@ -821,6 +962,34 @@ module JustHTML
       when "caption", "col", "colgroup", "tbody", "td", "tfoot", "th", "thead", "tr"
         if has_element_in_table_scope?("td") || has_element_in_table_scope?("th")
           close_cell
+          process_start_tag(tag)
+        end
+      else
+        # Process using "in body" rules
+        process_in_body_start_tag(tag)
+      end
+    end
+
+    private def process_in_caption_start_tag(tag : Tag) : Nil
+      name = tag.name
+
+      case name
+      when "caption", "col", "colgroup", "tbody", "td", "tfoot", "th", "thead", "tr"
+        # These tags close the caption
+        if has_element_in_table_scope?("caption")
+          generate_implied_end_tags
+          pop_until("caption")
+          clear_active_formatting_elements_to_last_marker
+          @mode = InsertionMode::InTable
+          process_start_tag(tag)
+        end
+      when "table"
+        # Close caption and reprocess
+        if has_element_in_table_scope?("caption")
+          generate_implied_end_tags
+          pop_until("caption")
+          clear_active_formatting_elements_to_last_marker
+          @mode = InsertionMode::InTable
           process_start_tag(tag)
         end
       else
@@ -1481,6 +1650,30 @@ module JustHTML
       end
     end
 
+    # Flush pending table text and restore original mode
+    private def flush_pending_table_text : Nil
+      data = @pending_table_text.join
+      @pending_table_text.clear
+
+      original_mode = @table_text_original_mode || InsertionMode::InTable
+      @table_text_original_mode = nil
+      @mode = original_mode
+
+      return if data.empty?
+
+      # If all whitespace, insert as normal text
+      if all_ascii_whitespace?(data)
+        insert_text(data)
+        return
+      end
+
+      # Contains non-whitespace - foster parent with reconstruct formatting
+      @foster_parenting = true
+      reconstruct_active_formatting_elements
+      insert_text(data)
+      @foster_parenting = false
+    end
+
     # Check if foster parenting should occur for a given target element
     # Similar to Python's _should_foster_parenting
     private def should_foster_parenting?(target : Element, for_tag : String? = nil, is_text : Bool = false) : Bool
@@ -1838,12 +2031,14 @@ module JustHTML
         end
 
         # Step 9: Find the furthest block
+        # Only HTML elements can be special - foreign content (SVG/MathML) is never special
         furthest_block : Element? = nil
         furthest_block_idx : Int32? = nil
 
         ((stack_idx + 1)...@open_elements.size).each do |i|
           el = @open_elements[i]
-          if Constants::SPECIAL_ELEMENTS.includes?(el.name)
+          # Only consider HTML namespace elements as special
+          if el.namespace == "html" && Constants::SPECIAL_ELEMENTS.includes?(el.name)
             furthest_block = el
             furthest_block_idx = i
             break
