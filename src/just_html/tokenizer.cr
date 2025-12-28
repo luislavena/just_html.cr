@@ -165,11 +165,6 @@ module JustHTML
       @length = html.size
       @pos = 0
 
-      # Discard BOM if present
-      if @length > 0 && @buffer[0] == '\uFEFF'
-        @pos = 1
-      end
-
       loop do
         break if step
       end
@@ -189,6 +184,15 @@ module JustHTML
         else
           @current_char = @buffer[@pos]
           @pos += 1
+
+          # HTML5 preprocessing: normalize \r\n and \r to \n
+          if @current_char == '\r'
+            @current_char = '\n'
+            # Skip the following \n if present (part of \r\n sequence)
+            if @pos < @length && @buffer[@pos] == '\n'
+              @pos += 1
+            end
+          end
         end
       end
 
@@ -298,8 +302,9 @@ module JustHTML
         @state = State::TagOpen
         false
       when '\0'
+        # In Data state, NULL characters are emitted as-is (not replaced)
         add_error("unexpected-null-character")
-        @text_buffer << '\uFFFD'
+        @text_buffer << '\0'
         false
       else
         @text_buffer << c
@@ -1131,6 +1136,8 @@ module JustHTML
         false
       when '>'
         add_error("missing-attribute-value")
+        # Save attribute with empty value before emitting tag
+        finish_attribute
         saved_state = @state
         emit_current_tag
         @state = State::Data if @state == saved_state
@@ -2015,17 +2022,13 @@ module JustHTML
             flush_code_points_consumed_as_character_reference
             @state = @return_state
             return false
-          else
-            # Non-legacy entity without semicolon: don't resolve
-            flush_code_points_consumed_as_character_reference
-            @state = State::AmbiguousAmpersand
-            return false
           end
+          # Non-legacy entity without semicolon: fall through to try prefix matching
         end
       end
 
-      # No exact match - try prefix matching for legacy entities
-      # This handles cases like &noti; where &not is a legacy entity
+      # No exact match, or non-legacy without semicolon - try prefix matching for legacy entities
+      # This handles cases like &notin (without semicolon) where &not is a legacy entity
       best_match : String? = nil
       best_match_name : String? = nil
 

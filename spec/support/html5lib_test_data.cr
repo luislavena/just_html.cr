@@ -254,7 +254,7 @@ module HTML5LibTestData
     end
 
     def process_doctype(doctype : JustHTML::Doctype) : Nil
-      @tokens << JSON.parse(["DOCTYPE", doctype.name || "", doctype.public_id, doctype.system_id, !doctype.force_quirks?].to_json)
+      @tokens << JSON.parse(["DOCTYPE", doctype.name, doctype.public_id, doctype.system_id, !doctype.force_quirks?].to_json)
     end
 
     def process_characters(data : String) : Nil

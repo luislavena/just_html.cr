@@ -817,16 +817,43 @@ module JustHTML
         end
         element = create_element(tag)
         insert_element(element)
+      when "rb", "rtc"
+        # Ruby elements: rb and rtc close rb, rt, rtc, rp
+        if has_element_in_scope?("ruby")
+          generate_implied_end_tags
+          if cn = current_node
+            if !{"rb", "rtc", "ruby"}.includes?(cn.name)
+              # Parse error but continue
+            end
+          end
+          pop_until_one_of({"rb", "rtc", "rp", "rt"})
+        end
+        element = create_element(tag)
+        insert_element(element)
+      when "rp", "rt"
+        # Ruby elements: rp and rt close rb, rp, rt but NOT rtc
+        if has_element_in_scope?("ruby")
+          generate_implied_end_tags("rtc")
+          if cn = current_node
+            if !{"rb", "rtc", "rp", "rt", "ruby"}.includes?(cn.name)
+              # Parse error but continue
+            end
+          end
+          # Only pop rb, rp, rt - NOT rtc (rt and rp can be inside rtc)
+          pop_until_one_of({"rb", "rp", "rt"})
+        end
+        element = create_element(tag)
+        insert_element(element)
       when "span"
         element = create_element(tag)
         insert_element(element)
       when "svg"
         reconstruct_active_formatting_elements
-        element = Element.new(tag.name, tag.attrs, Constants::NAMESPACE_SVG)
+        element = create_element(tag, Constants::NAMESPACE_SVG)
         insert_element(element)
       when "math"
         reconstruct_active_formatting_elements
-        element = Element.new(tag.name, tag.attrs, Constants::NAMESPACE_MATHML)
+        element = create_element(tag, Constants::NAMESPACE_MATHML)
         insert_element(element)
       else
         # Default: insert the element
@@ -1078,15 +1105,26 @@ module JustHTML
 
     private def create_element(tag : Tag, namespace : String = "html") : Element
       name = tag.name
-      # Adjust SVG tag names
+      attrs = tag.attrs
+      # Adjust SVG tag names and attributes
       if namespace == "svg"
         name = adjust_svg_tag_name(name)
+        attrs = adjust_svg_attributes(attrs)
       end
-      Element.new(name, tag.attrs, namespace)
+      Element.new(name, attrs, namespace)
     end
 
     private def adjust_svg_tag_name(name : String) : String
       Constants::SVG_TAG_ADJUSTMENTS[name]? || name
+    end
+
+    private def adjust_svg_attributes(attrs : Hash(String, String?)) : Hash(String, String?)
+      adjusted = {} of String => String?
+      attrs.each do |key, value|
+        adjusted_key = Constants::SVG_ATTRIBUTE_ADJUSTMENTS[key]? || key
+        adjusted[adjusted_key] = value
+      end
+      adjusted
     end
 
     private def insert_element(element : Element) : Nil
@@ -1181,6 +1219,17 @@ module JustHTML
     private def pop_until(name : String) : Nil
       while el = @open_elements.pop?
         break if el.name == name
+      end
+    end
+
+    private def pop_until_one_of(names : Set(String) | Tuple) : Nil
+      # Pop elements until we find one with a matching name, or reach an element not in the set
+      while el = @open_elements.last?
+        if names.includes?(el.name)
+          @open_elements.pop
+        else
+          break
+        end
       end
     end
 
