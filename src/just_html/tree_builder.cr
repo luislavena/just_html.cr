@@ -141,8 +141,8 @@ module JustHTML
       # Handle whitespace in certain modes
       case @mode
       when .initial?, .before_html?, .before_head?, .after_head?
-        # Skip leading whitespace in these modes
-        data = data.lstrip
+        # Skip leading ASCII whitespace in these modes (not all Unicode whitespace)
+        data = lstrip_ascii_whitespace(data)
         return if data.empty?
         # If non-whitespace, need to ensure proper context
         if @mode.before_head? || @mode.after_head?
@@ -1231,6 +1231,18 @@ module JustHTML
           break
         end
       end
+    end
+
+    private def lstrip_ascii_whitespace(str : String) : String
+      # Strip only ASCII whitespace: space, tab, newline, form feed, carriage return
+      # Not all Unicode whitespace (e.g., &ThickSpace; should be preserved)
+      i = 0
+      while i < str.size
+        c = str[i]
+        break unless c == ' ' || c == '\t' || c == '\n' || c == '\f' || c == '\r'
+        i += 1
+      end
+      i == 0 ? str : str[i..]
     end
 
     private def has_element_in_scope?(name : String) : Bool
