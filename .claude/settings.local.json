@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(crystal run:*)",
+      "Bash(crystal spec:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
+    ]
+  }
+}

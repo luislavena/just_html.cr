@@ -148,6 +148,17 @@ module JustHTML
         if @mode.before_head?
           ensure_body_context
         end
+      when .in_head_noscript?
+        # Whitespace: process using in head rules (insert as text)
+        if all_ascii_whitespace?(data)
+          insert_text(data)
+          return
+        end
+        # Non-whitespace: pop noscript, reprocess in head
+        @open_elements.pop if @open_elements.last?.try(&.name) == "noscript"
+        @mode = InsertionMode::InHead
+        process_characters(data)
+        return
       when .after_head?
         # Skip leading ASCII whitespace in AfterHead mode
         data = lstrip_ascii_whitespace(data)
@@ -338,18 +349,23 @@ module JustHTML
         end
       when .in_head?
         case name
-        when "title", "style", "script", "noscript", "noframes"
+        when "title", "style", "script", "noframes"
           element = create_element(tag)
           insert_element(element)
           if name == "script"
             @tokenizer.try(&.set_state(Tokenizer::State::ScriptData))
-          elsif name == "style" || name == "noframes" || name == "noscript"
+          elsif name == "style" || name == "noframes"
             @tokenizer.try(&.set_state(Tokenizer::State::RAWTEXT))
           elsif name == "title"
             @tokenizer.try(&.set_state(Tokenizer::State::RCDATA))
           end
           @original_mode = @mode
           @mode = InsertionMode::Text
+        when "noscript"
+          # Scripting is disabled: parse noscript content as HTML
+          element = create_element(tag)
+          insert_element(element)
+          @mode = InsertionMode::InHeadNoscript
         when "meta", "link", "base", "basefont", "bgsound"
           element = create_element(tag)
           insert_element(element)
@@ -367,6 +383,25 @@ module JustHTML
           # Pop head, move to after head
           @open_elements.pop if @open_elements.last?.try(&.name) == "head"
           @mode = InsertionMode::AfterHead
+          process_start_tag(tag)
+        end
+      when .in_head_noscript?
+        # Handle tokens in 'in head noscript' insertion mode (scripting disabled)
+        case name
+        when "html"
+          # Process using in body rules
+          process_in_body_start_tag(tag)
+        when "basefont", "bgsound", "link", "meta", "noframes", "style"
+          # Process using in head rules
+          @mode = InsertionMode::InHead
+          process_start_tag(tag)
+          @mode = InsertionMode::InHeadNoscript
+        when "head", "noscript"
+          # Parse error, ignore
+        else
+          # Any other start tag: pop noscript, reprocess in head
+          @open_elements.pop if @open_elements.last?.try(&.name) == "noscript"
+          @mode = InsertionMode::InHead
           process_start_tag(tag)
         end
       when .after_head?
@@ -913,6 +948,18 @@ module JustHTML
           @mode = InsertionMode::AfterHead
           process_end_tag(tag)
         end
+      when .in_head_noscript?
+        if name == "noscript"
+          # Pop noscript element
+          @open_elements.pop if @open_elements.last?.try(&.name) == "noscript"
+          @mode = InsertionMode::InHead
+        elsif name == "br"
+          # Pop noscript, reprocess in head
+          @open_elements.pop if @open_elements.last?.try(&.name) == "noscript"
+          @mode = InsertionMode::InHead
+          process_end_tag(tag)
+        end
+        # Any other end tag: parse error, ignore
       when .after_head?
         if name == "body" || name == "html" || name == "br"
           body = Element.new("body")
@@ -1257,6 +1304,10 @@ module JustHTML
         i += 1
       end
       i == 0 ? str : str[i..]
+    end
+
+    private def all_ascii_whitespace?(str : String) : Bool
+      str.each_char.all? { |c| c == ' ' || c == '\t' || c == '\n' || c == '\f' || c == '\r' }
     end
 
     private def has_element_in_scope?(name : String) : Bool
