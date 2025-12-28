@@ -1,8 +1,9 @@
 module JustHTML
   module Constants
     VOID_ELEMENTS = Set{
-      "area", "base", "br", "col", "embed", "hr", "img", "input",
-      "link", "meta", "param", "source", "track", "wbr",
+      "area", "base", "basefont", "bgsound", "br", "col", "embed",
+      "frame", "hr", "img", "input", "keygen", "link", "meta",
+      "param", "source", "track", "wbr",
     }
 
     SPECIAL_ELEMENTS = Set{
