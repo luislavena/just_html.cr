@@ -864,6 +864,9 @@ module JustHTML
         reconstruct_active_formatting_elements
         element = create_element(tag, Constants::NAMESPACE_MATHML)
         insert_element(element)
+      when "frame"
+        # Parse error - frame is only valid in frameset mode
+        # Ignore in body mode
       else
         # Default: insert the element
         element = create_element(tag)
