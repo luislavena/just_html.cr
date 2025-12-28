@@ -148,6 +148,23 @@ module JustHTML
         if @mode.before_head?
           ensure_body_context
         end
+      when .in_head?
+        # In head mode: whitespace is inserted, non-whitespace causes head to close
+        ws_len = 0
+        data.each_char do |c|
+          break unless c == ' ' || c == '\t' || c == '\n' || c == '\f' || c == '\r'
+          ws_len += 1
+        end
+        if ws_len > 0
+          insert_text(data[0, ws_len])
+        end
+        if ws_len < data.size
+          # Has non-whitespace - close head, move to after head, reprocess
+          @open_elements.pop if @open_elements.last?.try(&.name) == "head"
+          @mode = InsertionMode::AfterHead
+          process_characters(data[ws_len..])
+        end
+        return
       when .in_head_noscript?
         # Whitespace: process using in head rules (insert as text)
         if all_ascii_whitespace?(data)
