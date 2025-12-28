@@ -140,14 +140,23 @@ module JustHTML
 
       # Handle whitespace in certain modes
       case @mode
-      when .initial?, .before_html?, .before_head?, .after_head?
+      when .initial?, .before_html?, .before_head?
         # Skip leading ASCII whitespace in these modes (not all Unicode whitespace)
         data = lstrip_ascii_whitespace(data)
         return if data.empty?
         # If non-whitespace, need to ensure proper context
-        if @mode.before_head? || @mode.after_head?
+        if @mode.before_head?
           ensure_body_context
         end
+      when .after_head?
+        # Skip leading ASCII whitespace in AfterHead mode
+        data = lstrip_ascii_whitespace(data)
+        return if data.empty?
+        # Non-whitespace in AfterHead mode: insert implicit body
+        body = Element.new("body")
+        insert_element(body)
+        @mode = InsertionMode::InBody
+        reconstruct_active_formatting_elements
       when .in_body?
         # Reconstruct active formatting elements when in body mode
         reconstruct_active_formatting_elements
