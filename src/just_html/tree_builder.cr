@@ -203,6 +203,15 @@ module JustHTML
       when .in_cell?, .in_caption?
         # In cell/caption, process normally using in-body rules
         reconstruct_active_formatting_elements
+      when .in_select?, .in_select_in_table?
+        # Characters are allowed in select (except NULL)
+        insert_text(data.gsub('\0', ""))
+        return
+      when .in_frameset?, .after_frameset?, .after_after_frameset?
+        # Only whitespace is allowed in frameset modes
+        ws_only = data.chars.select { |c| c == ' ' || c == '\t' || c == '\n' || c == '\f' || c == '\r' }.join
+        insert_text(ws_only) unless ws_only.empty?
+        return
       when .in_template?
         # In template mode, process as in body
         reconstruct_active_formatting_elements
@@ -487,6 +496,12 @@ module JustHTML
         process_in_template_start_tag(tag)
       when .in_column_group?
         process_in_column_group_start_tag(tag)
+      when .in_select?, .in_select_in_table?
+        process_in_select_start_tag(tag)
+      when .in_frameset?
+        process_in_frameset_start_tag(tag)
+      when .after_frameset?
+        process_after_frameset_start_tag(tag)
       else
         # Default: insert the element
         element = create_element(tag)
@@ -529,6 +544,93 @@ module JustHTML
           @mode = InsertionMode::InTable
           process_start_tag(tag)
         end
+      end
+    end
+
+    private def process_in_select_start_tag(tag : Tag) : Nil
+      name = tag.name
+
+      case name
+      when "html"
+        # Process using in body rules
+        process_in_body_start_tag(tag)
+      when "option"
+        if current_node.try(&.name) == "option"
+          @open_elements.pop
+        end
+        element = create_element(tag)
+        insert_element(element)
+      when "optgroup"
+        if current_node.try(&.name) == "option"
+          @open_elements.pop
+        end
+        if current_node.try(&.name) == "optgroup"
+          @open_elements.pop
+        end
+        element = create_element(tag)
+        insert_element(element)
+      when "select"
+        # Close current select
+        pop_until("select")
+        reset_insertion_mode
+      when "input", "textarea", "keygen"
+        # Close current select and reprocess
+        pop_until("select")
+        reset_insertion_mode
+        process_start_tag(tag)
+      when "script", "template"
+        # Process using in head rules
+        @mode = InsertionMode::InHead
+        process_start_tag(tag)
+        # Mode was changed by process_start_tag
+      else
+        # Ignore other start tags
+      end
+    end
+
+    private def process_in_frameset_start_tag(tag : Tag) : Nil
+      name = tag.name
+
+      case name
+      when "html"
+        # Process using in body rules
+        process_in_body_start_tag(tag)
+      when "frameset"
+        element = create_element(tag)
+        insert_element(element)
+      when "frame"
+        # Void element
+        element = create_element(tag)
+        insert_element(element)
+        @open_elements.pop
+      when "noframes"
+        # Use RAWTEXT mode
+        element = create_element(tag)
+        insert_element(element)
+        @tokenizer.try(&.set_state(Tokenizer::State::RAWTEXT))
+        @original_mode = @mode
+        @mode = InsertionMode::Text
+      else
+        # Ignore other start tags
+      end
+    end
+
+    private def process_after_frameset_start_tag(tag : Tag) : Nil
+      name = tag.name
+
+      case name
+      when "html"
+        # Process using in body rules
+        process_in_body_start_tag(tag)
+      when "noframes"
+        # Use RAWTEXT mode
+        element = create_element(tag)
+        insert_element(element)
+        @tokenizer.try(&.set_state(Tokenizer::State::RAWTEXT))
+        @original_mode = @mode
+        @mode = InsertionMode::Text
+      else
+        # Ignore other start tags
       end
     end
 
@@ -1098,6 +1200,54 @@ module JustHTML
           @foster_parenting = true
           process_in_body_end_tag(tag)
           @foster_parenting = false
+        end
+      when .in_select?, .in_select_in_table?
+        case name
+        when "optgroup"
+          # Pop optgroup if current is option and previous is optgroup
+          if current_node.try(&.name) == "option"
+            if @open_elements.size >= 2 && @open_elements[-2].name == "optgroup"
+              @open_elements.pop # Pop option
+              @open_elements.pop # Pop optgroup
+            end
+          elsif current_node.try(&.name) == "optgroup"
+            @open_elements.pop
+          end
+          # Otherwise ignore
+        when "option"
+          if current_node.try(&.name) == "option"
+            @open_elements.pop
+          end
+          # Otherwise ignore
+        when "select"
+          pop_until("select")
+          reset_insertion_mode
+        when "template"
+          # Process using in head rules
+          @mode = InsertionMode::InHead
+          process_end_tag(tag)
+        else
+          # Ignore other end tags
+        end
+      when .in_frameset?
+        case name
+        when "frameset"
+          # Don't pop if current is html (root)
+          if current_node.try(&.name) != "html"
+            @open_elements.pop
+            if current_node.try(&.name) != "frameset"
+              @mode = InsertionMode::AfterFrameset
+            end
+          end
+        else
+          # Ignore other end tags
+        end
+      when .after_frameset?
+        case name
+        when "html"
+          @mode = InsertionMode::AfterAfterFrameset
+        else
+          # Ignore other end tags
         end
       when .in_cell?
         case name
