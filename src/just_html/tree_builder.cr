@@ -343,8 +343,10 @@ module JustHTML
           insert_element(element)
           if name == "script"
             @tokenizer.try(&.set_state(Tokenizer::State::ScriptData))
-          elsif name == "style" || name == "noframes"
+          elsif name == "style" || name == "noframes" || name == "noscript"
             @tokenizer.try(&.set_state(Tokenizer::State::RAWTEXT))
+          elsif name == "title"
+            @tokenizer.try(&.set_state(Tokenizer::State::RCDATA))
           end
           @original_mode = @mode
           @mode = InsertionMode::Text
