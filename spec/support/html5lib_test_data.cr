@@ -170,6 +170,25 @@ module HTML5LibTestData
     result.to_s.strip
   end
 
+  # Known foreign attributes that need space-separated format in test output
+  FOREIGN_ATTR_DISPLAY = {
+    "xlink:actuate" => "xlink actuate",
+    "xlink:arcrole" => "xlink arcrole",
+    "xlink:href"    => "xlink href",
+    "xlink:role"    => "xlink role",
+    "xlink:show"    => "xlink show",
+    "xlink:title"   => "xlink title",
+    "xlink:type"    => "xlink type",
+    "xml:lang"      => "xml lang",
+    "xml:space"     => "xml space",
+    "xmlns:xlink"   => "xmlns xlink",
+  }
+
+  # Format foreign attribute name for test output: "xlink:show" -> "xlink show"
+  private def self.format_foreign_attr(name : String) : String
+    FOREIGN_ATTR_DISPLAY[name]? || name
+  end
+
   private def self.serialize_node(node : JustHTML::Node, builder : String::Builder, indent : Int32) : Nil
     prefix = "| " + ("  " * indent)
 
@@ -199,8 +218,8 @@ module HTML5LibTestData
       end
       builder << node.name << ">\n"
 
-      # Attributes in alphabetical order
-      attrs = node.attrs.to_a.sort_by { |k, _| k }
+      # Attributes in alphabetical order by display name
+      attrs = node.attrs.to_a.map { |k, v| {format_foreign_attr(k), v} }.sort_by { |k, _| k }
       attrs.each do |attr_name, attr_value|
         builder << prefix << "  " << attr_name
         builder << "=\"" << (attr_value || "") << "\""
