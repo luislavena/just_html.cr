@@ -227,7 +227,7 @@ module JustHTML
       # In foreign content (SVG/MathML), CDATA sections are tokenized as comments
       # with data like "[CDATA[content]]". Convert these to text nodes.
       current = current_node
-      if current && (current.namespace == "svg" || current.namespace == "math")
+      if current && (current.namespace == "svg" || current.namespace == "mathml")
         if comment.data.starts_with?("[CDATA[") && comment.data.ends_with?("]]")
           cdata_content = comment.data[7..-3]
           # Normalize line endings: CRLF -> LF, CR -> LF
@@ -2335,7 +2335,7 @@ module JustHTML
       # In foreign content (SVG/MathML), CDATA sections are tokenized as comments
       # with data like "[CDATA[content]]". Convert these to text nodes.
       current = current_node
-      if current && (current.namespace == "svg" || current.namespace == "math")
+      if current && (current.namespace == "svg" || current.namespace == "mathml")
         if comment.data.starts_with?("[CDATA[") && comment.data.ends_with?("]]")
           cdata_content = comment.data[7..-3]
           # Normalize line endings: CRLF -> LF, CR -> LF
