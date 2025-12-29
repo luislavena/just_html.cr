@@ -1591,6 +1591,8 @@ module JustHTML
       if namespace == "svg"
         name = adjust_svg_tag_name(name)
         attrs = adjust_svg_attributes(attrs)
+      elsif namespace == "mathml"
+        attrs = adjust_mathml_attributes(attrs)
       end
       Element.new(name, attrs, namespace)
     end
@@ -1603,6 +1605,15 @@ module JustHTML
       adjusted = {} of String => String?
       attrs.each do |key, value|
         adjusted_key = Constants::SVG_ATTRIBUTE_ADJUSTMENTS[key]? || key
+        adjusted[adjusted_key] = value
+      end
+      adjusted
+    end
+
+    private def adjust_mathml_attributes(attrs : Hash(String, String?)) : Hash(String, String?)
+      adjusted = {} of String => String?
+      attrs.each do |key, value|
+        adjusted_key = Constants::MATHML_ATTRIBUTE_ADJUSTMENTS[key]? || key
         adjusted[adjusted_key] = value
       end
       adjusted
