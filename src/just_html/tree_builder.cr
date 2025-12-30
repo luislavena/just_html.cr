@@ -1251,10 +1251,14 @@ module JustHTML
         reconstruct_active_formatting_elements
         element = create_element(tag, Constants::NAMESPACE_SVG)
         insert_element(element)
+        # Self-closing svg tag should be popped
+        @open_elements.pop if tag.self_closing?
       when "math"
         reconstruct_active_formatting_elements
         element = create_element(tag, Constants::NAMESPACE_MATHML)
         insert_element(element)
+        # Self-closing math tag should be popped
+        @open_elements.pop if tag.self_closing?
       when "frame"
         # Parse error - frame is only valid in frameset mode
         # Ignore in body mode
