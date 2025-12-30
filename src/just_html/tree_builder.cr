@@ -1004,23 +1004,24 @@ module JustHTML
       # Check if we're in foreign content (SVG or MathML)
       current = current_node
       if current && (current.namespace == "svg" || current.namespace == "mathml")
-        if breaks_out_of_foreign_content?(tag, current.namespace)
-          # Pop elements until we exit foreign content
-          while cn = current_node
-            break if cn.namespace == "html"
-            @open_elements.pop
+        # First check if we're at an integration point
+        if should_use_foreign_content?(tag, current)
+          # In foreign content, check for breakout
+          if breaks_out_of_foreign_content?(tag, current.namespace)
+            # Pop elements until we exit foreign content or reach integration point
+            pop_until_html_or_integration_point
+            # Process the tag in HTML context (fall through to normal handling)
+          else
+            # Stay in foreign content - create element in same namespace
+            element = create_element(tag, current.namespace)
+            insert_element(element)
+            if tag.self_closing? || Constants::VOID_ELEMENTS.includes?(name)
+              @open_elements.pop
+            end
+            return
           end
-          # Process the tag in HTML context (fall through to normal handling)
-        elsif !is_html_integration_point?(current)
-          # Stay in foreign content - create element in same namespace
-          element = create_element(tag, current.namespace)
-          insert_element(element)
-          if tag.self_closing? || Constants::VOID_ELEMENTS.includes?(name)
-            @open_elements.pop
-          end
-          return
         end
-        # If at HTML integration point, fall through to HTML handling
+        # At integration point or after breakout, fall through to HTML handling
       end
 
       case name
@@ -1765,11 +1766,17 @@ module JustHTML
       str.each_char.all? { |c| c == ' ' || c == '\t' || c == '\n' || c == '\f' || c == '\r' }
     end
 
-    private def has_element_in_scope?(name : String) : Bool
+    private def has_element_in_scope?(name : String, check_integration_points : Bool = true) : Bool
       scope_terminators = {"applet", "caption", "html", "table", "td", "th", "marquee", "object", "template"}
       @open_elements.reverse_each do |el|
         return true if el.name == name
-        return false if scope_terminators.includes?(el.name)
+        # For HTML elements, check terminators
+        if el.namespace == "html"
+          return false if scope_terminators.includes?(el.name)
+        elsif check_integration_points
+          # For foreign content elements, integration points terminate scope
+          return false if is_html_integration_point?(el) || is_mathml_text_integration_point?(el)
+        end
       end
       false
     end
@@ -1778,7 +1785,13 @@ module JustHTML
       scope_terminators = {"applet", "caption", "html", "table", "td", "th", "marquee", "object", "template", "button"}
       @open_elements.reverse_each do |el|
         return true if el.name == name
-        return false if scope_terminators.includes?(el.name)
+        # For HTML elements, check terminators
+        if el.namespace == "html"
+          return false if scope_terminators.includes?(el.name)
+        else
+          # For foreign content elements, integration points terminate scope
+          return false if is_html_integration_point?(el) || is_mathml_text_integration_point?(el)
+        end
       end
       false
     end
@@ -1787,7 +1800,13 @@ module JustHTML
       scope_terminators = {"applet", "caption", "html", "table", "td", "th", "marquee", "object", "template", "ol", "ul"}
       @open_elements.reverse_each do |el|
         return true if el.name == name
-        return false if scope_terminators.includes?(el.name)
+        # For HTML elements, check terminators
+        if el.namespace == "html"
+          return false if scope_terminators.includes?(el.name)
+        else
+          # For foreign content elements, integration points terminate scope
+          return false if is_html_integration_point?(el) || is_mathml_text_integration_point?(el)
+        end
       end
       false
     end
@@ -1796,16 +1815,25 @@ module JustHTML
       scope_terminators = {"applet", "caption", "html", "table", "td", "th", "marquee", "object", "template"}
       @open_elements.reverse_each do |el|
         return true if {"h1", "h2", "h3", "h4", "h5", "h6"}.includes?(el.name)
-        return false if scope_terminators.includes?(el.name)
+        # For HTML elements, check terminators
+        if el.namespace == "html"
+          return false if scope_terminators.includes?(el.name)
+        else
+          # For foreign content elements, integration points terminate scope
+          return false if is_html_integration_point?(el) || is_mathml_text_integration_point?(el)
+        end
       end
       false
     end
 
     private def has_element_in_table_scope?(name : String) : Bool
+      # Table scope doesn't check integration points (per spec)
       scope_terminators = {"html", "table", "template"}
       @open_elements.reverse_each do |el|
         return true if el.name == name
-        return false if scope_terminators.includes?(el.name)
+        if el.namespace == "html"
+          return false if scope_terminators.includes?(el.name)
+        end
       end
       false
     end
@@ -2249,20 +2277,55 @@ module JustHTML
         return {"foreignObject", "desc", "title"}.includes?(element.name)
       end
 
-      # MathML annotation-xml with specific attributes
-      if element.namespace == "mathml"
-        if element.name == "annotation-xml"
-          encoding = element["encoding"]
-          if encoding
-            enc_lower = encoding.downcase
-            return enc_lower == "text/html" || enc_lower == "application/xhtml+xml"
-          end
+      # MathML annotation-xml with specific encoding is an HTML integration point
+      if element.namespace == "mathml" && element.name == "annotation-xml"
+        encoding = element["encoding"]
+        if encoding
+          enc_lower = encoding.downcase
+          return enc_lower == "text/html" || enc_lower == "application/xhtml+xml"
         end
-        # MathML mi, mo, mn, ms, mtext are integration points
-        return {"mi", "mo", "mn", "ms", "mtext"}.includes?(element.name)
       end
 
       false
+    end
+
+    # Check if element is a MathML text integration point
+    private def is_mathml_text_integration_point?(element : Element?) : Bool
+      return false unless element
+      return false unless element.namespace == "mathml"
+      {"mi", "mo", "mn", "ms", "mtext"}.includes?(element.name)
+    end
+
+    # Determine if a start tag should be processed in foreign content mode
+    private def should_use_foreign_content?(tag : Tag, current : Element) : Bool
+      # At MathML text integration points, most start tags fall through to HTML
+      if is_mathml_text_integration_point?(current)
+        # Only mglyph and malignmark stay in foreign content
+        return {"mglyph", "malignmark"}.includes?(tag.name)
+      end
+
+      # At annotation-xml in MathML, svg tag falls through to HTML mode
+      if current.namespace == "mathml" && current.name == "annotation-xml"
+        return tag.name != "svg"
+      end
+
+      # At HTML integration points, start tags fall through to HTML
+      if is_html_integration_point?(current)
+        return false
+      end
+
+      # Otherwise, stay in foreign content
+      true
+    end
+
+    # Pop elements until we reach HTML namespace or an integration point
+    private def pop_until_html_or_integration_point : Nil
+      while element = current_node
+        break if element.namespace == "html"
+        break if is_html_integration_point?(element)
+        break if is_mathml_text_integration_point?(element)
+        @open_elements.pop
+      end
     end
 
     # Check if a tag should break out of foreign content
