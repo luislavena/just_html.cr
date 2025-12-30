@@ -1178,6 +1178,13 @@ module JustHTML
         @original_mode = @mode
         @frameset_ok = false
         @mode = InsertionMode::Text
+      when "plaintext"
+        close_p_if_in_button_scope
+        element = create_element(tag)
+        insert_element(element)
+        @frameset_ok = false
+        # PLAINTEXT state consumes all remaining input - no end tag
+        @tokenizer.try(&.set_state(Tokenizer::State::PLAINTEXT))
       when "xmp"
         close_p_if_in_button_scope
         element = create_element(tag)
