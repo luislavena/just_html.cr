@@ -244,6 +244,15 @@ module JustHTML
       end
 
       node = Comment.new(comment.data)
+
+      # In after-body mode, comments are appended to the html element
+      if @mode.after_body? || @mode.after_after_body?
+        if html = @open_elements.first?
+          html.append_child(node)
+          return
+        end
+      end
+
       insert_node(node)
     end
 
