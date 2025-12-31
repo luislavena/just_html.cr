@@ -1319,6 +1319,25 @@ module JustHTML
         insert_element(element)
         # Self-closing math tag should be popped
         @open_elements.pop if tag.self_closing?
+      when "frameset"
+        # Frameset in body mode - only allowed if frameset-ok is true
+        if @frameset_ok
+          # If the second element is body, remove it from its parent (the DOM)
+          if @open_elements.size > 1
+            second = @open_elements[1]
+            if second.name == "body"
+              second.parent.try(&.remove_child(second))
+            end
+          end
+          # Pop all elements from stack except html
+          while @open_elements.size > 1 && @open_elements.last?.try(&.name) != "html"
+            @open_elements.pop
+          end
+          element = create_element(tag)
+          insert_element(element)
+          @mode = InsertionMode::InFrameset
+        end
+        # Otherwise ignore
       when "frame"
         # Parse error - frame is only valid in frameset mode
         # Ignore in body mode
