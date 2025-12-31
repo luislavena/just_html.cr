@@ -746,6 +746,18 @@ module JustHTML
         @mode = InsertionMode::InHead
         process_start_tag(tag)
         # Mode was changed by process_start_tag
+      when "svg"
+        # Foreign elements in select - insert with namespace
+        reconstruct_active_formatting_elements
+        element = create_element(tag, Constants::NAMESPACE_SVG)
+        insert_element(element)
+        @open_elements.pop if tag.self_closing?
+      when "math"
+        # Foreign elements in select - insert with namespace
+        reconstruct_active_formatting_elements
+        element = create_element(tag, Constants::NAMESPACE_MATHML)
+        insert_element(element)
+        @open_elements.pop if tag.self_closing?
       else
         # Ignore other start tags
       end
