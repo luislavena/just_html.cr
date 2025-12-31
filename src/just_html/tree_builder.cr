@@ -674,6 +674,10 @@ module JustHTML
         process_in_frameset_start_tag(tag)
       when .after_frameset?
         process_after_frameset_start_tag(tag)
+      when .after_after_body?
+        # Any start tag in after-after-body mode: reprocess in body mode
+        @mode = InsertionMode::InBody
+        process_start_tag(tag)
       else
         # Default: insert the element
         element = create_element(tag)
