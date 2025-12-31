@@ -225,11 +225,16 @@ module JustHTML
       end
 
       # In foreign content (SVG/MathML), CDATA sections are tokenized as comments
-      # with data like "[CDATA[content]]". Convert these to text nodes.
+      # with data like "[CDATA[content]]" or "[CDATA[content" (unclosed).
+      # Convert these to text nodes.
       current = current_node
       if current && (current.namespace == "svg" || current.namespace == "mathml")
-        if comment.data.starts_with?("[CDATA[") && comment.data.ends_with?("]]")
-          cdata_content = comment.data[7..-3]
+        if comment.data.starts_with?("[CDATA[")
+          # Extract content: remove "[CDATA[" prefix and "]]" suffix if present
+          cdata_content = comment.data[7..]
+          if cdata_content.ends_with?("]]")
+            cdata_content = cdata_content[0..-3]
+          end
           # Normalize line endings: CRLF -> LF, CR -> LF
           cdata_content = cdata_content.gsub("\r\n", "\n").gsub("\r", "\n")
           node = Text.new(cdata_content)
@@ -2418,11 +2423,16 @@ module JustHTML
 
     def process_comment(comment : CommentToken) : Nil
       # In foreign content (SVG/MathML), CDATA sections are tokenized as comments
-      # with data like "[CDATA[content]]". Convert these to text nodes.
+      # with data like "[CDATA[content]]" or "[CDATA[content" (unclosed).
+      # Convert these to text nodes.
       current = current_node
       if current && (current.namespace == "svg" || current.namespace == "mathml")
-        if comment.data.starts_with?("[CDATA[") && comment.data.ends_with?("]]")
-          cdata_content = comment.data[7..-3]
+        if comment.data.starts_with?("[CDATA[")
+          # Extract content: remove "[CDATA[" prefix and "]]" suffix if present
+          cdata_content = comment.data[7..]
+          if cdata_content.ends_with?("]]")
+            cdata_content = cdata_content[0..-3]
+          end
           # Normalize line endings: CRLF -> LF, CR -> LF
           cdata_content = cdata_content.gsub("\r\n", "\n").gsub("\r", "\n")
           node = Text.new(cdata_content)
