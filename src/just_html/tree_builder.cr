@@ -235,10 +235,13 @@ module JustHTML
           if cdata_content.ends_with?("]]")
             cdata_content = cdata_content[0..-3]
           end
-          # Normalize line endings: CRLF -> LF, CR -> LF
-          cdata_content = cdata_content.gsub("\r\n", "\n").gsub("\r", "\n")
-          node = Text.new(cdata_content)
-          insert_node(node)
+          # Only insert non-empty content
+          unless cdata_content.empty?
+            # Normalize line endings: CRLF -> LF, CR -> LF
+            cdata_content = cdata_content.gsub("\r\n", "\n").gsub("\r", "\n")
+            node = Text.new(cdata_content)
+            insert_node(node)
+          end
           return
         end
       end
@@ -2512,10 +2515,13 @@ module JustHTML
           if cdata_content.ends_with?("]]")
             cdata_content = cdata_content[0..-3]
           end
-          # Normalize line endings: CRLF -> LF, CR -> LF
-          cdata_content = cdata_content.gsub("\r\n", "\n").gsub("\r", "\n")
-          node = Text.new(cdata_content)
-          insert_node(node)
+          # Only insert non-empty content
+          unless cdata_content.empty?
+            # Normalize line endings: CRLF -> LF, CR -> LF
+            cdata_content = cdata_content.gsub("\r\n", "\n").gsub("\r", "\n")
+            node = Text.new(cdata_content)
+            insert_node(node)
+          end
           return
         end
       end
