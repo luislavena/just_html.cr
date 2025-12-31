@@ -165,6 +165,20 @@ module JustHTML
       builder = new(collect_errors, fragment_ctx)
       tokenizer = Tokenizer.new(builder, collect_errors)
       builder.set_tokenizer(tokenizer)
+
+      # Set tokenizer state based on context element per HTML5 spec
+      context_lower = context.downcase
+      case context_lower
+      when "title", "textarea"
+        tokenizer.set_state(Tokenizer::State::RCDATA)
+      when "style", "xmp", "iframe", "noembed", "noframes"
+        tokenizer.set_state(Tokenizer::State::RAWTEXT)
+      when "script"
+        tokenizer.set_state(Tokenizer::State::ScriptData)
+      when "plaintext"
+        tokenizer.set_state(Tokenizer::State::PLAINTEXT)
+      end
+
       tokenizer.run(html)
       builder.finish_fragment
     end
