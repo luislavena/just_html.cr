@@ -479,6 +479,11 @@ module JustHTML
           # Pop current element, return to original mode
           @open_elements.pop
           @mode = @original_mode || InsertionMode::InBody
+          # If returning to AfterHead, we need to remove head from the stack
+          # (it was pushed for processing script/style from AfterHead mode)
+          if @mode.after_head? && @open_elements.last?.try(&.name) == "head"
+            @open_elements.pop
+          end
         when .in_template?
           # Handle EOF in template - pop until template
           if @open_elements.any? { |el| el.name == "template" }
@@ -633,9 +638,14 @@ module JustHTML
             @open_elements << head
             @mode = InsertionMode::InHead
             process_start_tag(tag)
-            @open_elements.delete(head)
-            # Only reset mode if we're still in InHead (script/style go to Text mode)
-            @mode = InsertionMode::AfterHead if @mode.in_head?
+            if @mode.text?
+              # Script/style switched to Text mode - set original_mode to AfterHead
+              # so we return there after content is processed
+              @original_mode = InsertionMode::AfterHead
+            else
+              @open_elements.delete(head)
+              @mode = InsertionMode::AfterHead if @mode.in_head?
+            end
           end
         else
           # Insert implicit body
@@ -1384,6 +1394,11 @@ module JustHTML
           @open_elements.pop
         end
         @mode = @original_mode || InsertionMode::InBody
+        # If returning to AfterHead, we need to remove head from the stack
+        # (it was pushed for processing script/style from AfterHead mode)
+        if @mode.after_head? && @open_elements.last?.try(&.name) == "head"
+          @open_elements.pop
+        end
       when .after_body?
         if name == "html"
           @mode = InsertionMode::AfterAfterBody
