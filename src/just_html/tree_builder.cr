@@ -245,8 +245,14 @@ module JustHTML
 
       node = Comment.new(comment.data)
 
+      # In after-after-body/after-after-frameset modes, comments are appended to document
+      if @mode.after_after_body? || @mode.after_after_frameset?
+        @document.append_child(node)
+        return
+      end
+
       # In after-body mode, comments are appended to the html element
-      if @mode.after_body? || @mode.after_after_body?
+      if @mode.after_body?
         if html = @open_elements.first?
           html.append_child(node)
           return
@@ -678,6 +684,20 @@ module JustHTML
         # Any start tag in after-after-body mode: reprocess in body mode
         @mode = InsertionMode::InBody
         process_start_tag(tag)
+      when .after_after_frameset?
+        # html tag: process using in body rules
+        # noframes: process using in head rules (RAWTEXT mode)
+        # Any other start tag: ignore
+        case name
+        when "html"
+          process_in_body_start_tag(tag)
+        when "noframes"
+          element = create_element(tag)
+          insert_element(element)
+          @tokenizer.try(&.set_state(Tokenizer::State::RAWTEXT))
+          @original_mode = @mode
+          @mode = InsertionMode::Text
+        end
       else
         # Default: insert the element
         element = create_element(tag)
