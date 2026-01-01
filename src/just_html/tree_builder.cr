@@ -534,6 +534,24 @@ module JustHTML
     private def process_start_tag(tag : Tag) : Nil
       name = tag.name
 
+      # Check for foreign content processing before mode-based dispatch
+      # This mirrors Python html5lib's mainLoop approach
+      current = current_node
+      if current && (current.namespace == "svg" || current.namespace == "mathml")
+        if should_use_foreign_content?(tag, current)
+          if breaks_out_of_foreign_content?(tag, current.namespace)
+            # Pop elements until we reach HTML namespace or integration point
+            pop_until_html_or_integration_point
+            # Fall through to reprocess in current insertion mode
+          else
+            # Stay in foreign content - create element in same namespace
+            process_foreign_content_start_tag(tag, current.namespace)
+            return
+          end
+        end
+        # At integration point, fall through to normal mode handling
+      end
+
       case @mode
       when .initial?
         # Skip whitespace, process anything else
@@ -1370,6 +1388,15 @@ module JustHTML
 
     private def process_end_tag(tag : Tag) : Nil
       name = tag.name
+
+      # Check for foreign content processing before mode-based dispatch
+      # This mirrors Python html5lib's mainLoop approach for end tags
+      current = current_node
+      if current && (current.namespace == "svg" || current.namespace == "mathml")
+        if process_foreign_content_end_tag(tag)
+          return
+        end
+      end
 
       case @mode
       when .initial?, .before_html?
@@ -2409,6 +2436,70 @@ module JustHTML
     end
 
     # Determine if a start tag should be processed in foreign content mode
+    # Process a start tag in foreign content (SVG or MathML)
+    private def process_foreign_content_start_tag(tag : Tag, namespace : String) : Nil
+      name = tag.name
+      attrs = tag.attrs
+
+      # Adjust names and attributes for the namespace
+      if namespace == "svg"
+        name = adjust_svg_tag_name(name)
+        attrs = adjust_svg_attributes(attrs)
+      elsif namespace == "mathml"
+        attrs = adjust_mathml_attributes(attrs)
+      end
+      # Note: adjust_foreign_attributes for xlink/xml/xmlns prefixes not yet implemented
+
+      # Create element in the foreign namespace
+      element = Element.new(name, attrs, namespace)
+      insert_element(element)
+
+      # Self-closing tags should be popped
+      if tag.self_closing?
+        @open_elements.pop
+      end
+    end
+
+    # Process an end tag in foreign content (SVG or MathML)
+    # Returns true if handled, false if should fall through to mode handling
+    private def process_foreign_content_end_tag(tag : Tag) : Bool
+      name = tag.name
+      current = current_node
+      return false unless current
+
+      # For script end tag, handle specially
+      if name == "script" && current.name == "script" && current.namespace == "svg"
+        @open_elements.pop
+        return true
+      end
+
+      # Look for matching element in open elements stack (from top to bottom)
+      # For SVG, comparison should be case-insensitive
+      @open_elements.reverse_each.with_index do |element, index|
+        actual_index = @open_elements.size - 1 - index
+
+        # Check if element matches (case-sensitive for mathml, adjusted for svg)
+        matches = if element.namespace == "svg"
+          element.name.downcase == name.downcase
+        else
+          element.name == name
+        end
+
+        if matches
+          # Pop elements from the stack down to and including this one
+          (@open_elements.size - actual_index).times { @open_elements.pop }
+          return true
+        end
+
+        # If we reach an HTML element, stop searching and fall through
+        if element.namespace == "html"
+          return false
+        end
+      end
+
+      false
+    end
+
     private def should_use_foreign_content?(tag : Tag, current : Element) : Bool
       # At MathML text integration points, most start tags fall through to HTML
       if is_mathml_text_integration_point?(current)
