@@ -836,6 +836,35 @@ module JustHTML
         element = create_element(tag, Constants::NAMESPACE_MATHML)
         insert_element(element)
         @open_elements.pop if tag.self_closing?
+      when "p", "div", "span", "button", "datalist", "selectedcontent"
+        # Allow common HTML elements in select (newer spec)
+        reconstruct_active_formatting_elements
+        element = create_element(tag)
+        insert_element(element)
+        @open_elements.pop if tag.self_closing?
+      when "br", "img"
+        # Void elements allowed in select
+        reconstruct_active_formatting_elements
+        element = create_element(tag)
+        insert_element(element)
+        @open_elements.pop
+      when "hr"
+        # Pop option and optgroup before inserting hr
+        if current_node.try(&.name) == "option"
+          @open_elements.pop
+        end
+        if current_node.try(&.name) == "optgroup"
+          @open_elements.pop
+        end
+        reconstruct_active_formatting_elements
+        element = create_element(tag)
+        insert_element(element)
+        @open_elements.pop
+      when "plaintext"
+        # Plaintext element consumes all remaining text
+        reconstruct_active_formatting_elements
+        element = create_element(tag)
+        insert_element(element)
       else
         # Ignore other start tags
       end
@@ -1551,6 +1580,11 @@ module JustHTML
         when "template"
           # Process using in head rules
           @mode = InsertionMode::InHead
+          process_end_tag(tag)
+        when "caption", "col", "colgroup", "tbody", "td", "tfoot", "th", "thead", "tr", "table"
+          # Table-related end tags: pop select and reprocess
+          pop_until("select")
+          reset_insertion_mode
           process_end_tag(tag)
         else
           # Ignore other end tags
