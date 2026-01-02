@@ -907,7 +907,7 @@ module JustHTML
         element = create_element(tag, Constants::NAMESPACE_MATHML)
         insert_element(element)
         @open_elements.pop if tag.self_closing?
-      when "p", "div", "span", "button", "datalist", "selectedcontent"
+      when "p", "div", "span", "button", "datalist", "selectedcontent", "menuitem"
         # Allow common HTML elements in select (newer spec)
         reconstruct_active_formatting_elements
         element = create_element(tag)
@@ -1530,7 +1530,8 @@ module JustHTML
         @mode = InsertionMode::InTemplate
         @template_insertion_modes << InsertionMode::InTemplate
       else
-        # Default: insert the element
+        # Default: reconstruct formatting elements and insert the element
+        reconstruct_active_formatting_elements
         element = create_element(tag)
         insert_element(element)
         if Constants::VOID_ELEMENTS.includes?(name)
