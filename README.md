@@ -8,7 +8,7 @@ A pure Crystal HTML5 parser aiming to pass the full html5lib-tests suite.
 
 It implements the official WHATWG HTML5 specification exactly. If a browser can parse it, JustHTML can parse it.
 
-- **Work in progress**: Currently passes ~59% (4,872/8,191) of the official [html5lib-tests](https://github.com/html5lib/html5lib-tests) suite (tree construction and tokenizer tests)
+- **98.5% conformance**: Passes 8,449 of 8,580 tests from the official [html5lib-tests](https://github.com/html5lib/html5lib-tests) suite (tree construction and tokenizer tests)
 - **Living standard**: Tracks the current WHATWG specification, not a snapshot from years ago
 
 ### Pure Crystal
