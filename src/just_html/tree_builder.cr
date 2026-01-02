@@ -547,7 +547,12 @@ module JustHTML
             @head_element = head
             @mode = InsertionMode::InHead
           end
-        when .in_head?, .in_head_noscript?
+        when .in_head_noscript?
+          # Pop noscript, switch to InHead, and reprocess
+          @open_elements.pop if @open_elements.last?.try(&.name) == "noscript"
+          @mode = InsertionMode::InHead
+          # Continue loop to process EOF in InHead mode
+        when .in_head?
           # Pop head and move to AfterHead
           @open_elements.pop if @open_elements.last?.try(&.name) == "head"
           @mode = InsertionMode::AfterHead
@@ -734,9 +739,15 @@ module JustHTML
           process_in_body_start_tag(tag)
         when "basefont", "bgsound", "link", "meta", "noframes", "style"
           # Process using in head rules
+          saved_mode = @mode
           @mode = InsertionMode::InHead
           process_start_tag(tag)
-          @mode = InsertionMode::InHeadNoscript
+          # If processing switched to Text mode (for noframes/style), fix @original_mode
+          if @mode.text?
+            @original_mode = saved_mode
+          else
+            @mode = InsertionMode::InHeadNoscript
+          end
         when "head", "noscript"
           # Parse error, ignore
         else
