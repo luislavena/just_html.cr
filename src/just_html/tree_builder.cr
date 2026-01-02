@@ -2133,7 +2133,8 @@ module JustHTML
 
     private def pop_until(name : String) : Nil
       while el = @open_elements.pop?
-        break if el.name == name
+        # Match elements in HTML namespace (or no namespace)
+        break if el.name == name && (el.namespace == "html" || el.namespace.nil?)
       end
     end
 
@@ -2235,8 +2236,9 @@ module JustHTML
       # Table scope doesn't check integration points (per spec)
       scope_terminators = {"html", "table", "template"}
       @open_elements.reverse_each do |el|
-        return true if el.name == name
-        if el.namespace == "html"
+        # Only match HTML namespace elements
+        if el.namespace == "html" || el.namespace.nil?
+          return true if el.name == name
           return false if scope_terminators.includes?(el.name)
         end
       end
