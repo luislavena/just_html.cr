@@ -314,6 +314,22 @@ module JustHTML
       end
       @ignore_lf = false
 
+      # Remove NULL bytes in most contexts (except foreign content where they're replaced with U+FFFD)
+      # This matches HTML5 spec behavior for character tokens
+      if data.includes?('\0')
+        # In foreign content (not at integration points), NULL is replaced with U+FFFD (handled in insert_text)
+        # In HTML content and at integration points, NULL is removed
+        current = current_node
+        in_foreign = current && (current.namespace == "svg" || current.namespace == "mathml")
+        at_integration_point = current && (is_html_integration_point?(current) || is_mathml_text_integration_point?(current))
+
+        # Remove NULL if we're NOT in foreign content, OR if we're at an integration point
+        unless in_foreign && !at_integration_point
+          data = data.gsub('\0', "")
+          return if data.empty?
+        end
+      end
+
       # Handle whitespace in certain modes
       case @mode
       when .initial?, .before_html?, .before_head?
@@ -448,6 +464,14 @@ module JustHTML
       return if data.empty?
 
       if current = current_node
+        # In foreign content (SVG/MathML), replace NULL bytes with U+FFFD
+        # But NOT at HTML/MathML integration points where NULL is removed like in HTML
+        if (current.namespace == "svg" || current.namespace == "mathml") && data.includes?('\0')
+          unless is_html_integration_point?(current) || is_mathml_text_integration_point?(current)
+            data = data.gsub('\0', '\ufffd')
+          end
+        end
+
         # Check if foster parenting is needed for text
         if @foster_parenting && in_table_context?
           text_node = Text.new(data)
