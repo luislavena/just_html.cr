@@ -1118,9 +1118,12 @@ module JustHTML
           @foster_parenting = false
         end
       when "form"
-        if @form_element.nil?
-          @form_element = Element.new(tag.name, tag.attrs)
-          foster_parent_node(@form_element.not_nil!)
+        # If there's no form element pointer and no template on the stack
+        if @form_element.nil? && !@open_elements.any? { |el| el.name == "template" && el.namespace == "html" }
+          form_element = create_element(tag)
+          insert_element(form_element)
+          @form_element = form_element
+          @open_elements.pop  # Immediately pop it (form is invisible in table)
         end
       else
         # Foster parent anything else
