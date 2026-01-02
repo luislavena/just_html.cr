@@ -65,6 +65,7 @@ module JustHTML
     @fragment_context_element : Element?
     @pending_table_text : Array(String)
     @table_text_original_mode : InsertionMode?
+    @quirks_mode : String
 
     def initialize(@collect_errors : Bool = false, @fragment_context : FragmentContext? = nil)
       @document = Document.new
@@ -77,6 +78,7 @@ module JustHTML
       @form_element = nil
       @frameset_ok = true
       @ignore_lf = false
+      @quirks_mode = "no-quirks"
       @tokenizer = nil
       @foster_parenting = false
       @fragment_context_element = nil
@@ -299,6 +301,9 @@ module JustHTML
 
       node = DoctypeNode.new(doctype.name, doctype.public_id, doctype.system_id)
       @document.append_child(node)
+
+      # Determine quirks mode based on DOCTYPE
+      @quirks_mode = determine_quirks_mode(doctype)
 
       # Move to BeforeHtml mode
       @mode = InsertionMode::BeforeHtml
@@ -654,7 +659,8 @@ module JustHTML
 
       case @mode
       when .initial?
-        # Skip whitespace, process anything else
+        # No doctype seen - set quirks mode
+        @quirks_mode = "quirks"
         @mode = InsertionMode::BeforeHtml
         process_start_tag(tag)
       when .before_html?
@@ -1420,7 +1426,8 @@ module JustHTML
         @active_formatting_elements << ActiveFormattingMarker.new
         @frameset_ok = false
       when "table"
-        close_p_if_in_button_scope
+        # Only close p element if not in quirks mode
+        close_p_if_in_button_scope unless @quirks_mode == "quirks"
         element = create_element(tag)
         insert_element(element)
         @frameset_ok = false
@@ -2127,6 +2134,27 @@ module JustHTML
       return true if is_text
       return false if for_tag && TABLE_ALLOWED_CHILDREN.includes?(for_tag)
       true
+    end
+
+    # Determine quirks mode based on DOCTYPE
+    # Simplified version - handles main cases
+    private def determine_quirks_mode(doctype : Doctype) : String
+      # Force quirks flag takes precedence
+      return "quirks" if doctype.force_quirks?
+
+      # Name must be "html" for standards mode
+      name = doctype.name.try(&.downcase)
+      return "quirks" if name != "html"
+
+      # Valid HTML5 doctype (no public/system ID)
+      return "no-quirks" if doctype.public_id.nil? && doctype.system_id.nil?
+
+      # about:legacy-compat is valid
+      return "no-quirks" if doctype.system_id == "about:legacy-compat"
+
+      # For simplicity, default to no-quirks for other cases
+      # A full implementation would check against quirks mode trigger lists
+      "no-quirks"
     end
 
     private def current_node : Element?
