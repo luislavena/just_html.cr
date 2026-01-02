@@ -1333,6 +1333,16 @@ module JustHTML
         close_p_if_in_button_scope
         element = create_element(tag)
         insert_element(element)
+      when "button"
+        # If there's already a button in scope, close it first
+        if has_element_in_scope?("button")
+          generate_implied_end_tags
+          pop_until("button")
+        end
+        reconstruct_active_formatting_elements
+        element = create_element(tag)
+        insert_element(element)
+        @frameset_ok = false
       when "a"
         # Check for existing a in active formatting elements
         # If found, run adoption agency algorithm for it first
