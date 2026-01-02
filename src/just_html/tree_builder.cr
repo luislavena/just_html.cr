@@ -147,6 +147,10 @@ module JustHTML
         else
           InsertionMode::InBody
         end
+
+        # For fragments, frameset_ok starts as False per HTML5 spec
+        # This prevents frameset from being inserted in fragment contexts
+        @frameset_ok = false
       else
         @mode = InsertionMode::Initial
       end
@@ -167,16 +171,19 @@ module JustHTML
       builder.set_tokenizer(tokenizer)
 
       # Set tokenizer state based on context element per HTML5 spec
-      context_lower = context.downcase
-      case context_lower
-      when "title", "textarea"
-        tokenizer.set_state(Tokenizer::State::RCDATA)
-      when "style", "xmp", "iframe", "noembed", "noframes"
-        tokenizer.set_state(Tokenizer::State::RAWTEXT)
-      when "script"
-        tokenizer.set_state(Tokenizer::State::ScriptData)
-      when "plaintext"
-        tokenizer.set_state(Tokenizer::State::PLAINTEXT)
+      # Only applies to HTML namespace (no namespace or "html")
+      if context_namespace.nil? || context_namespace == "html"
+        context_lower = context.downcase
+        case context_lower
+        when "title", "textarea"
+          tokenizer.set_state(Tokenizer::State::RCDATA)
+        when "style", "xmp", "iframe", "noembed", "noframes"
+          tokenizer.set_state(Tokenizer::State::RAWTEXT)
+        when "script"
+          tokenizer.set_state(Tokenizer::State::ScriptData)
+        when "plaintext"
+          tokenizer.set_state(Tokenizer::State::PLAINTEXT)
+        end
       end
 
       tokenizer.run(html)
@@ -352,10 +359,15 @@ module JustHTML
         body = Element.new("body")
         insert_element(body)
         @mode = InsertionMode::InBody
+        @frameset_ok = false # Non-whitespace sets frameset_ok to false
         reconstruct_active_formatting_elements
       when .in_body?
         # Reconstruct active formatting elements when in body mode
         reconstruct_active_formatting_elements
+        # Non-whitespace text sets frameset_ok to false
+        unless all_ascii_whitespace?(data)
+          @frameset_ok = false
+        end
       when .in_column_group?
         # Whitespace is allowed, non-whitespace causes colgroup to close
         ws_len = 0
@@ -391,6 +403,10 @@ module JustHTML
       when .in_cell?, .in_caption?
         # In cell/caption, process normally using in-body rules
         reconstruct_active_formatting_elements
+        # Non-whitespace text sets frameset_ok to false
+        unless all_ascii_whitespace?(data)
+          @frameset_ok = false
+        end
       when .in_select?, .in_select_in_table?
         # Characters are allowed in select (except NULL)
         insert_text(data.gsub('\0', ""))
@@ -403,6 +419,24 @@ module JustHTML
       when .in_template?
         # In template mode, process as in body
         reconstruct_active_formatting_elements
+        # Non-whitespace text sets frameset_ok to false
+        unless all_ascii_whitespace?(data)
+          @frameset_ok = false
+        end
+      when .after_body?, .after_after_body?
+        # Whitespace is processed using InBody rules (stays in current mode)
+        # Non-whitespace reprocesses in InBody
+        if all_ascii_whitespace?(data)
+          # Process whitespace using InBody rules
+          reconstruct_active_formatting_elements
+          insert_text(data)
+          return
+        else
+          # Non-whitespace: switch to InBody and reprocess
+          @mode = InsertionMode::InBody
+          process_characters(data)
+          return
+        end
       end
 
       # Insert text into current element
@@ -488,10 +522,15 @@ module JustHTML
           @open_elements.pop if @open_elements.last?.try(&.name) == "head"
           @mode = InsertionMode::AfterHead
         when .after_head?
-          # Create implicit body element
-          body = Element.new("body")
-          insert_element(body)
-          @mode = InsertionMode::InBody
+          # If we're inside a template, don't create body
+          if @template_insertion_modes.size > 0
+            @mode = InsertionMode::InBody
+          else
+            # Create implicit body element
+            body = Element.new("body")
+            insert_element(body)
+            @mode = InsertionMode::InBody
+          end
         when .text?
           # Pop current element, return to original mode
           @open_elements.pop
@@ -502,9 +541,9 @@ module JustHTML
             @open_elements.pop
           end
         when .in_template?
-          # Handle EOF in template - pop until template
-          if @open_elements.any? { |el| el.name == "template" }
-            pop_until("template")
+          # Handle EOF in template - pop until HTML template
+          if @open_elements.any? { |el| el.name == "template" && el.namespace == "html" }
+            pop_until_html_template
             clear_active_formatting_elements_to_last_marker
             @template_insertion_modes.pop if @template_insertion_modes.size > 0
             reset_insertion_mode
@@ -514,8 +553,16 @@ module JustHTML
         when .in_body?, .in_table?, .in_table_body?, .in_row?, .in_cell?,
              .in_select?, .in_select_in_table?, .in_column_group?, .in_caption?,
              .in_frameset?, .after_frameset?, .after_after_frameset?
-          # Transition to after body for final cleanup
-          @mode = InsertionMode::AfterBody
+          # Check for unclosed HTML templates first
+          if @open_elements.any? { |el| el.name == "template" && el.namespace == "html" }
+            pop_until_html_template
+            clear_active_formatting_elements_to_last_marker
+            @template_insertion_modes.pop if @template_insertion_modes.size > 0
+            reset_insertion_mode
+          else
+            # Transition to after body for final cleanup
+            @mode = InsertionMode::AfterBody
+          end
         when .after_body?
           @mode = InsertionMode::AfterAfterBody
         when .after_after_body?
@@ -550,6 +597,24 @@ module JustHTML
           end
         end
         # At integration point, fall through to normal mode handling
+        # But first check if we're in a table mode without an actual table in scope
+        # In that case, temporarily use IN_BODY mode (where table structure tags are ignored)
+        if is_mathml_text_integration_point?(current) || is_html_integration_point?(current)
+          if @mode != InsertionMode::InBody
+            table_modes = {InsertionMode::InTable, InsertionMode::InTableBody,
+                           InsertionMode::InRow, InsertionMode::InCell,
+                           InsertionMode::InCaption, InsertionMode::InColumnGroup}
+            if table_modes.includes?(@mode) && !has_element_in_table_scope?("table")
+              # Temporarily use IN_BODY mode for this tag
+              saved_mode = @mode
+              @mode = InsertionMode::InBody
+              process_in_body_start_tag(tag)
+              # Restore mode if we're still in IN_BODY (i.e., mode wasn't changed by the handler)
+              @mode = saved_mode if @mode == InsertionMode::InBody
+              return
+            end
+          end
+        end
       end
 
       case @mode
@@ -865,6 +930,11 @@ module JustHTML
         reconstruct_active_formatting_elements
         element = create_element(tag)
         insert_element(element)
+      when "caption", "col", "colgroup", "tbody", "td", "tfoot", "th", "thead", "tr", "table"
+        # Table-related tags: pop select and reprocess
+        pop_until("select")
+        reset_insertion_mode
+        process_start_tag(tag)
       else
         # Ignore other start tags
       end
@@ -948,6 +1018,32 @@ module JustHTML
         @template_insertion_modes << InsertionMode::InRow
         @mode = InsertionMode::InRow
         process_start_tag(tag)
+      when "base", "basefont", "bgsound", "link", "meta"
+        # Void head elements: just insert (don't push)
+        element = create_element(tag)
+        insert_element(element)
+        @open_elements.pop
+      when "title"
+        # Handle title with RCDATA mode
+        element = create_element(tag)
+        insert_element(element)
+        @tokenizer.try(&.set_state(Tokenizer::State::RCDATA))
+        @original_mode = @mode  # Keep InTemplate as original!
+        @mode = InsertionMode::Text
+      when "script"
+        # Handle script with ScriptData mode
+        element = create_element(tag)
+        insert_element(element)
+        @tokenizer.try(&.set_state(Tokenizer::State::ScriptData))
+        @original_mode = @mode  # Keep InTemplate as original!
+        @mode = InsertionMode::Text
+      when "style", "noframes"
+        # Handle style/noframes with RAWTEXT mode
+        element = create_element(tag)
+        insert_element(element)
+        @tokenizer.try(&.set_state(Tokenizer::State::RAWTEXT))
+        @original_mode = @mode  # Keep InTemplate as original!
+        @mode = InsertionMode::Text
       else
         @template_insertion_modes.pop if @template_insertion_modes.size > 0
         @template_insertion_modes << InsertionMode::InBody
@@ -1001,7 +1097,8 @@ module JustHTML
         # Process using "in head" rules
         @mode = InsertionMode::InHead
         process_start_tag(tag)
-        @mode = InsertionMode::InTable
+        # Only restore InTable if mode wasn't changed (template switches to InTemplate)
+        @mode = InsertionMode::InTable if @mode == InsertionMode::InHead
       when "input"
         # If type is hidden, insert it; otherwise foster parent
         if tag.attrs["type"]?.try(&.downcase) == "hidden"
@@ -1115,6 +1212,9 @@ module JustHTML
           clear_active_formatting_elements_to_last_marker
           @mode = InsertionMode::InTable
           process_start_tag(tag)
+        else
+          # Fragment parsing: no caption on stack - handle in body mode
+          process_in_body_start_tag(tag)
         end
       else
         # Process using "in body" rules
@@ -1150,12 +1250,16 @@ module JustHTML
 
       case name
       when "html"
+        # Inside template, ignore html start tag
+        return if @template_insertion_modes.size > 0
         if html = @open_elements.first?
           tag.attrs.each do |k, v|
             html[k] = v unless html.has_attribute?(k)
           end
         end
       when "body"
+        # Inside template, ignore body start tag
+        return if @template_insertion_modes.size > 0
         if @open_elements.size >= 2
           body = @open_elements[1]?
           if body && body.name == "body"
@@ -1402,9 +1506,20 @@ module JustHTML
           @mode = InsertionMode::InFrameset
         end
         # Otherwise ignore
-      when "frame"
-        # Parse error - frame is only valid in frameset mode
+      when "frame", "head"
+        # Parse error - frame is only valid in frameset mode, head in head mode
         # Ignore in body mode
+      when "caption", "col", "colgroup", "tbody", "td", "tfoot", "th", "thead", "tr"
+        # Table structure tags are ignored in body mode (parse error)
+        # These are only valid inside tables
+      when "template"
+        # Template in body mode - process using in head rules
+        element = create_element(tag)
+        insert_element(element)
+        push_onto_active_formatting_elements(ActiveFormattingMarker.new)
+        @frameset_ok = false
+        @mode = InsertionMode::InTemplate
+        @template_insertion_modes << InsertionMode::InTemplate
       else
         # Default: insert the element
         element = create_element(tag)
@@ -1428,8 +1543,18 @@ module JustHTML
       end
 
       case @mode
-      when .initial?, .before_html?
+      when .initial?
         # Ignore
+      when .before_html?
+        if {"head", "body", "html", "br"}.includes?(name)
+          # Create html element and reprocess
+          html = Element.new("html")
+          @document.append_child(html)
+          @open_elements << html
+          @mode = InsertionMode::BeforeHead
+          process_end_tag(tag)
+        end
+        # Other end tags are ignored
       when .before_head?
         if name == "head" || name == "body" || name == "html" || name == "br"
           # Insert implicit head, then reprocess
@@ -1442,10 +1567,10 @@ module JustHTML
         end
       when .in_head?
         if name == "template"
-          # Handle template end tag
-          if @open_elements.any? { |el| el.name == "template" }
+          # Handle template end tag - only match HTML namespace templates
+          if @open_elements.any? { |el| el.name == "template" && el.namespace == "html" }
             generate_implied_end_tags
-            pop_until("template")
+            pop_until_html_template
             clear_active_formatting_elements_to_last_marker
             @template_insertion_modes.pop if @template_insertion_modes.size > 0
             reset_insertion_mode
@@ -1501,10 +1626,10 @@ module JustHTML
       when .in_template?
         # Handle end tags in template mode
         if name == "template"
-          # Handle template end tag (same as in_head)
-          if @open_elements.any? { |el| el.name == "template" }
+          # Handle template end tag (same as in_head) - only match HTML namespace templates
+          if @open_elements.any? { |el| el.name == "template" && el.namespace == "html" }
             generate_implied_end_tags
-            pop_until("template")
+            pop_until_html_template
             clear_active_formatting_elements_to_last_marker
             @template_insertion_modes.pop if @template_insertion_modes.size > 0
             reset_insertion_mode
@@ -1512,6 +1637,28 @@ module JustHTML
         else
           # For other end tags, process using the current template insertion mode
           # This is already handled by reset_insertion_mode
+          process_in_body_end_tag(tag)
+        end
+      when .in_caption?
+        case name
+        when "caption"
+          if has_element_in_table_scope?("caption")
+            generate_implied_end_tags
+            pop_until("caption")
+            clear_active_formatting_elements_to_last_marker
+            @mode = InsertionMode::InTable
+          end
+        when "table"
+          if has_element_in_table_scope?("caption")
+            generate_implied_end_tags
+            pop_until("caption")
+            clear_active_formatting_elements_to_last_marker
+            @mode = InsertionMode::InTable
+            process_end_tag(tag)
+          end
+        when "body", "col", "colgroup", "html", "tbody", "td", "tfoot", "th", "thead", "tr"
+          # Parse error - ignore
+        else
           process_in_body_end_tag(tag)
         end
       when .in_column_group?
@@ -1540,7 +1687,54 @@ module JustHTML
           end
           # Otherwise ignore
         end
-      when .in_table?, .in_table_body?, .in_row?
+      when .in_row?
+        # Handle row end tags specially
+        case name
+        when "tr"
+          if has_element_in_table_scope?("tr")
+            clear_stack_back_to_table_row_context
+            @open_elements.pop if current_node.try(&.name) == "tr"
+            # When in a template, restore template mode; otherwise use IN_TABLE_BODY
+            if @template_insertion_modes.size > 0
+              @mode = @template_insertion_modes.last
+            else
+              @mode = InsertionMode::InTableBody
+            end
+          end
+        when "table"
+          if has_element_in_table_scope?("tr")
+            clear_stack_back_to_table_row_context
+            @open_elements.pop if current_node.try(&.name) == "tr"
+            # Restore mode and reprocess
+            if @template_insertion_modes.size > 0
+              @mode = @template_insertion_modes.last
+            else
+              @mode = InsertionMode::InTableBody
+            end
+            process_end_tag(tag)
+          end
+        when "tbody", "tfoot", "thead"
+          if has_element_in_table_scope?(name)
+            if has_element_in_table_scope?("tr")
+              clear_stack_back_to_table_row_context
+              @open_elements.pop if current_node.try(&.name) == "tr"
+              if @template_insertion_modes.size > 0
+                @mode = @template_insertion_modes.last
+              else
+                @mode = InsertionMode::InTableBody
+              end
+            end
+            process_end_tag(tag)
+          end
+        when "body", "caption", "col", "colgroup", "html", "td", "th"
+          # Parse error - ignore
+        else
+          # For other end tags, process using in body rules with foster parenting
+          @foster_parenting = true
+          process_in_body_end_tag(tag)
+          @foster_parenting = false
+        end
+      when .in_table?, .in_table_body?
         # Handle table end tags
         case name
         when "table"
@@ -1548,7 +1742,18 @@ module JustHTML
             pop_until("table")
             reset_insertion_mode
           end
-        when "body", "caption", "col", "colgroup", "html", "tbody", "td", "tfoot", "th", "thead", "tr"
+        when "tbody", "tfoot", "thead"
+          if @mode.in_table_body? && has_element_in_table_scope?(name)
+            clear_stack_back_to_table_body_context
+            @open_elements.pop
+            @mode = InsertionMode::InTable
+          elsif has_element_in_table_scope?(name)
+            # In InTable mode, pop table sections and reprocess
+            pop_until(name)
+            reset_insertion_mode
+            process_end_tag(tag)
+          end
+        when "body", "caption", "col", "colgroup", "html", "td", "th", "tr"
           # Ignore these end tags in table context
         else
           # For other end tags, process using in body rules with foster parenting
@@ -1730,10 +1935,10 @@ module JustHTML
           clear_active_formatting_elements_to_last_marker
         end
       when "template"
-        # Handle template end tag
-        if @open_elements.any? { |el| el.name == "template" }
+        # Handle template end tag - only match HTML namespace templates
+        if @open_elements.any? { |el| el.name == "template" && el.namespace == "html" }
           generate_implied_end_tags
-          pop_until("template")
+          pop_until_html_template
           clear_active_formatting_elements_to_last_marker
           @template_insertion_modes.pop if @template_insertion_modes.size > 0
           reset_insertion_mode
@@ -1909,6 +2114,13 @@ module JustHTML
     private def pop_until(name : String) : Nil
       while el = @open_elements.pop?
         break if el.name == name
+      end
+    end
+
+    # Pop elements until we find an HTML namespace template element
+    private def pop_until_html_template : Nil
+      while el = @open_elements.pop?
+        break if el.name == "template" && el.namespace == "html"
       end
     end
 
@@ -2387,8 +2599,27 @@ module JustHTML
 
     # Foster parenting - insert node before the table in the DOM
     private def foster_parent_node(node : Node) : Nil
-      # Find the last table in the stack
+      # Find the last HTML template and table in the stack
+      template_idx = @open_elements.rindex { |el| el.name == "template" && el.namespace == "html" }
       table_idx = @open_elements.rindex { |el| el.name == "table" }
+
+      # If template exists and (no table OR template is after table), insert into template_content
+      if template_idx && (table_idx.nil? || template_idx > table_idx)
+        template = @open_elements[template_idx]
+        if template_contents = template.template_contents
+          # If inserting text and last child is text, merge them
+          if node.is_a?(Text)
+            if last = template_contents.children.last?
+              if last.is_a?(Text)
+                last.data += node.data
+                return
+              end
+            end
+          end
+          template_contents.append_child(node)
+          return
+        end
+      end
 
       if table_idx
         table = @open_elements[table_idx]
@@ -2497,9 +2728,17 @@ module JustHTML
     # Process an end tag in foreign content (SVG or MathML)
     # Returns true if handled, false if should fall through to mode handling
     private def process_foreign_content_end_tag(tag : Tag) : Bool
-      name = tag.name
+      name = tag.name.downcase
       current = current_node
       return false unless current
+
+      # Special case: </br> and </p> end tags trigger breakout from foreign content
+      # They should be reprocessed in HTML mode to create implicit opening tags
+      if name == "br" || name == "p"
+        pop_until_html_or_integration_point
+        # Don't reset_insertion_mode - stay in current mode (InBody for fragment parsing)
+        return false  # Fall through to HTML mode handling
+      end
 
       # For script end tag, handle specially
       if name == "script" && current.name == "script" && current.namespace == "svg"
@@ -2520,6 +2759,11 @@ module JustHTML
         end
 
         if matches
+          # Check if this is the fragment context element - can't pop that
+          if @fragment_context_element && element.same?(@fragment_context_element)
+            # Parse error - unexpected end tag in fragment context
+            return true
+          end
           # Pop elements from the stack down to and including this one
           (@open_elements.size - actual_index).times { @open_elements.pop }
           return true
@@ -2561,6 +2805,10 @@ module JustHTML
         break if element.namespace == "html"
         break if is_html_integration_point?(element)
         break if is_mathml_text_integration_point?(element)
+        # Don't pop the fragment context element
+        if @fragment_context_element && element.same?(@fragment_context_element)
+          break
+        end
         @open_elements.pop
       end
     end

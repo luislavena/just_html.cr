@@ -10,7 +10,8 @@ module JustHTML
     def initialize(@name : String, @namespace : String = "html")
       super()
       @attrs = {} of String => String?
-      @template_contents = @name == "template" ? DocumentFragment.new : nil
+      # Only HTML templates have template_contents, not SVG/MathML templates
+      @template_contents = (@name == "template" && @namespace == "html") ? DocumentFragment.new : nil
     end
 
     def initialize(@name : String, attrs, @namespace : String = "html")
@@ -19,7 +20,8 @@ module JustHTML
       attrs.each do |key, value|
         @attrs[key] = value
       end
-      @template_contents = @name == "template" ? DocumentFragment.new : nil
+      # Only HTML templates have template_contents, not SVG/MathML templates
+      @template_contents = (@name == "template" && @namespace == "html") ? DocumentFragment.new : nil
     end
 
     def [](attr : String) : String?

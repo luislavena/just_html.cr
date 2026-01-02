@@ -219,7 +219,9 @@ module HTML5LibTestData
       builder << node.name << ">\n"
 
       # Attributes in alphabetical order by display name
-      attrs = node.attrs.to_a.map { |k, v| {format_foreign_attr(k), v} }.sort_by { |k, _| k }
+      # Only use space-separated format for foreign elements (SVG/MathML)
+      is_foreign = node.namespace == "svg" || node.namespace == "mathml"
+      attrs = node.attrs.to_a.map { |k, v| {is_foreign ? format_foreign_attr(k) : k, v} }.sort_by { |k, _| k }
       attrs.each do |attr_name, attr_value|
         builder << prefix << "  " << attr_name
         builder << "=\"" << (attr_value || "") << "\""
