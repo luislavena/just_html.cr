@@ -92,8 +92,9 @@ module JustHTML
         namespace = fragment_ctx.namespace
         context_name = fragment_ctx.tag_name.downcase
 
-        # Create a fake context element for foreign content
+        # Create a context element for special contexts
         if namespace && namespace != "html"
+          # Foreign content (SVG/MathML)
           adjusted_name = context_name
           if namespace == "svg"
             adjusted_name = adjust_svg_tag_name(context_name)
@@ -512,18 +513,23 @@ module JustHTML
           @open_elements << html
           @mode = InsertionMode::BeforeHead
         when .before_head?
-          # Create implicit head element
-          head = Element.new("head")
-          insert_element(head)
-          @head_element = head
-          @mode = InsertionMode::InHead
+          # In fragment parsing, don't create implicit head
+          if @fragment_context
+            @mode = InsertionMode::InBody
+          else
+            # Create implicit head element
+            head = Element.new("head")
+            insert_element(head)
+            @head_element = head
+            @mode = InsertionMode::InHead
+          end
         when .in_head?, .in_head_noscript?
           # Pop head and move to AfterHead
           @open_elements.pop if @open_elements.last?.try(&.name) == "head"
           @mode = InsertionMode::AfterHead
         when .after_head?
-          # If we're inside a template, don't create body
-          if @template_insertion_modes.size > 0
+          # If we're inside a template or fragment parsing, don't create body
+          if @template_insertion_modes.size > 0 || @fragment_context
             @mode = InsertionMode::InBody
           else
             # Create implicit body element
