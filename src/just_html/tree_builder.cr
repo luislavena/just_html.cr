@@ -107,47 +107,47 @@ module JustHTML
 
         # Set insertion mode based on context element name
         @mode = case context_name
-        when "html"
-          InsertionMode::BeforeHead
-        when "tbody", "thead", "tfoot"
-          if namespace.nil? || namespace == "html"
-            InsertionMode::InTableBody
-          else
-            InsertionMode::InBody
-          end
-        when "tr"
-          if namespace.nil? || namespace == "html"
-            InsertionMode::InRow
-          else
-            InsertionMode::InBody
-          end
-        when "td", "th"
-          if namespace.nil? || namespace == "html"
-            InsertionMode::InCell
-          else
-            InsertionMode::InBody
-          end
-        when "caption"
-          if namespace.nil? || namespace == "html"
-            InsertionMode::InCaption
-          else
-            InsertionMode::InBody
-          end
-        when "colgroup"
-          if namespace.nil? || namespace == "html"
-            InsertionMode::InColumnGroup
-          else
-            InsertionMode::InBody
-          end
-        when "table"
-          if namespace.nil? || namespace == "html"
-            InsertionMode::InTable
-          else
-            InsertionMode::InBody
-          end
-        else
-          InsertionMode::InBody
-        end
+                when "html"
+                  InsertionMode::BeforeHead
+                when "tbody", "thead", "tfoot"
+                  if namespace.nil? || namespace == "html"
+                    InsertionMode::InTableBody
+                  else
+                    InsertionMode::InBody
+                  end
+                when "tr"
+                  if namespace.nil? || namespace == "html"
+                    InsertionMode::InRow
+                  else
+                    InsertionMode::InBody
+                  end
+                when "td", "th"
+                  if namespace.nil? || namespace == "html"
+                    InsertionMode::InCell
+                  else
+                    InsertionMode::InBody
+                  end
+                when "caption"
+                  if namespace.nil? || namespace == "html"
+                    InsertionMode::InCaption
+                  else
+                    InsertionMode::InBody
+                  end
+                when "colgroup"
+                  if namespace.nil? || namespace == "html"
+                    InsertionMode::InColumnGroup
+                  else
+                    InsertionMode::InBody
+                  end
+                when "table"
+                  if namespace.nil? || namespace == "html"
+                    InsertionMode::InTable
+                  else
+                    InsertionMode::InBody
+                  end
+                else
+                  InsertionMode::InBody
+                end
 
         # For fragments, frameset_ok starts as False per HTML5 spec
         # This prevents frameset from being inserted in fragment contexts
@@ -411,7 +411,7 @@ module JustHTML
         @pending_table_text.clear
         @table_text_original_mode = @mode
         @mode = InsertionMode::InTableText
-        process_characters(data)  # Reprocess in InTableText mode
+        process_characters(data) # Reprocess in InTableText mode
         return
       when .in_table_text?
         # Collect text in pending_table_text
@@ -1069,21 +1069,21 @@ module JustHTML
         element = create_element(tag)
         insert_element(element)
         @tokenizer.try(&.set_state(Tokenizer::State::RCDATA))
-        @original_mode = @mode  # Keep InTemplate as original!
+        @original_mode = @mode # Keep InTemplate as original!
         @mode = InsertionMode::Text
       when "script"
         # Handle script with ScriptData mode
         element = create_element(tag)
         insert_element(element)
         @tokenizer.try(&.set_state(Tokenizer::State::ScriptData))
-        @original_mode = @mode  # Keep InTemplate as original!
+        @original_mode = @mode # Keep InTemplate as original!
         @mode = InsertionMode::Text
       when "style", "noframes"
         # Handle style/noframes with RAWTEXT mode
         element = create_element(tag)
         insert_element(element)
         @tokenizer.try(&.set_state(Tokenizer::State::RAWTEXT))
-        @original_mode = @mode  # Keep InTemplate as original!
+        @original_mode = @mode # Keep InTemplate as original!
         @mode = InsertionMode::Text
       else
         @template_insertion_modes.pop if @template_insertion_modes.size > 0
@@ -1158,7 +1158,7 @@ module JustHTML
           form_element = create_element(tag)
           insert_element(form_element)
           @form_element = form_element
-          @open_elements.pop  # Immediately pop it (form is invisible in table)
+          @open_elements.pop # Immediately pop it (form is invisible in table)
         end
       else
         # Foster parent anything else
@@ -2794,7 +2794,7 @@ module JustHTML
       if name == "br" || name == "p"
         pop_until_html_or_integration_point
         # Don't reset_insertion_mode - stay in current mode (InBody for fragment parsing)
-        return false  # Fall through to HTML mode handling
+        return false # Fall through to HTML mode handling
       end
 
       # For script end tag, handle specially
@@ -2810,10 +2810,10 @@ module JustHTML
 
         # Check if element matches (case-sensitive for mathml, adjusted for svg)
         matches = if element.namespace == "svg"
-          element.name.downcase == name.downcase
-        else
-          element.name == name
-        end
+                    element.name.downcase == name.downcase
+                  else
+                    element.name == name
+                  end
 
         if matches
           # Check if this is the fragment context element - can't pop that
@@ -3088,7 +3088,7 @@ module JustHTML
       # Check if this tag breaks out of foreign content
       if breaks_out_of_foreign_content?(tag, namespace)
         namespace = "html"
-      # If current element is an HTML integration point
+        # If current element is an HTML integration point
       elsif is_in_mathml_integration_point && is_mathml_text_integration_point_element?(tag.name)
         # MathML-specific elements stay in MathML namespace even in integration points
         namespace = "mathml"

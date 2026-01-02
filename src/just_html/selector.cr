@@ -3,32 +3,32 @@ module JustHTML
   class Selector
     # Selector token types
     enum TokenType
-      Type        # element name like "div"
-      Id          # #id
-      Class       # .class
-      Attribute   # [attr], [attr=value], etc
-      Universal   # *
-      Combinator  # space, >, +, ~
-      Comma       # ,
+      Type       # element name like "div"
+      Id         # #id
+      Class      # .class
+      Attribute  # [attr], [attr=value], etc
+      Universal  # *
+      Combinator # space, >, +, ~
+      Comma      # ,
       EOF
     end
 
     # Attribute selector operators
     enum AttrOp
-      Exists    # [attr]
-      Equals    # [attr=value]
-      Prefix    # [attr^=value]
-      Suffix    # [attr$=value]
-      Contains  # [attr*=value]
-      Word      # [attr~=value]
-      Hyphen    # [attr|=value]
+      Exists   # [attr]
+      Equals   # [attr=value]
+      Prefix   # [attr^=value]
+      Suffix   # [attr$=value]
+      Contains # [attr*=value]
+      Word     # [attr~=value]
+      Hyphen   # [attr|=value]
     end
 
     # Combinator types
     enum CombinatorType
-      Descendant      # space
-      Child           # >
-      NextSibling     # +
+      Descendant        # space
+      Child             # >
+      NextSibling       # +
       SubsequentSibling # ~
     end
 

@@ -128,15 +128,15 @@ module JustHTML
 
     private def self.escape_text(text : String) : String
       text.gsub("&", "&amp;")
-          .gsub("<", "&lt;")
-          .gsub(">", "&gt;")
+        .gsub("<", "&lt;")
+        .gsub(">", "&gt;")
     end
 
     private def self.escape_attribute(text : String) : String
       text.gsub("&", "&amp;")
-          .gsub("<", "&lt;")
-          .gsub(">", "&gt;")
-          .gsub("\"", "&quot;")
+        .gsub("<", "&lt;")
+        .gsub(">", "&gt;")
+        .gsub("\"", "&quot;")
     end
 
     # Text extraction

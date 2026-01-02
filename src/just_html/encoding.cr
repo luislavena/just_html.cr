@@ -6,77 +6,77 @@ module JustHTML
     # Encoding name aliases (lowercase -> canonical name)
     ENCODING_ALIASES = {
       # UTF-8
-      "utf-8"          => "UTF-8",
-      "utf8"           => "UTF-8",
+      "utf-8"             => "UTF-8",
+      "utf8"              => "UTF-8",
       "unicode-1-1-utf-8" => "UTF-8",
 
       # UTF-16
-      "utf-16"         => "UTF-16",
-      "utf-16le"       => "UTF-16LE",
-      "utf-16be"       => "UTF-16BE",
+      "utf-16"   => "UTF-16",
+      "utf-16le" => "UTF-16LE",
+      "utf-16be" => "UTF-16BE",
 
       # ISO-8859-1 (Latin-1)
-      "iso-8859-1"     => "ISO-8859-1",
-      "iso8859-1"      => "ISO-8859-1",
-      "iso88591"       => "ISO-8859-1",
-      "latin1"         => "ISO-8859-1",
-      "latin-1"        => "ISO-8859-1",
-      "l1"             => "ISO-8859-1",
-      "csisolatin1"    => "ISO-8859-1",
+      "iso-8859-1"  => "ISO-8859-1",
+      "iso8859-1"   => "ISO-8859-1",
+      "iso88591"    => "ISO-8859-1",
+      "latin1"      => "ISO-8859-1",
+      "latin-1"     => "ISO-8859-1",
+      "l1"          => "ISO-8859-1",
+      "csisolatin1" => "ISO-8859-1",
 
       # Windows-1252 (superset of ISO-8859-1)
-      "windows-1252"   => "windows-1252",
-      "cp1252"         => "windows-1252",
-      "x-cp1252"       => "windows-1252",
+      "windows-1252" => "windows-1252",
+      "cp1252"       => "windows-1252",
+      "x-cp1252"     => "windows-1252",
 
       # ASCII -> windows-1252 per HTML5 spec
-      "ascii"          => "windows-1252",
-      "us-ascii"       => "windows-1252",
-      "iso-ir-6"       => "windows-1252",
+      "ascii"    => "windows-1252",
+      "us-ascii" => "windows-1252",
+      "iso-ir-6" => "windows-1252",
 
       # ISO-8859-2 through ISO-8859-16
-      "iso-8859-2"     => "ISO-8859-2",
-      "iso-8859-3"     => "ISO-8859-3",
-      "iso-8859-4"     => "ISO-8859-4",
-      "iso-8859-5"     => "ISO-8859-5",
-      "iso-8859-6"     => "ISO-8859-6",
-      "iso-8859-7"     => "ISO-8859-7",
-      "iso-8859-8"     => "ISO-8859-8",
-      "iso-8859-9"     => "ISO-8859-9",
-      "iso-8859-10"    => "ISO-8859-10",
-      "iso-8859-13"    => "ISO-8859-13",
-      "iso-8859-14"    => "ISO-8859-14",
-      "iso-8859-15"    => "ISO-8859-15",
-      "iso-8859-16"    => "ISO-8859-16",
+      "iso-8859-2"  => "ISO-8859-2",
+      "iso-8859-3"  => "ISO-8859-3",
+      "iso-8859-4"  => "ISO-8859-4",
+      "iso-8859-5"  => "ISO-8859-5",
+      "iso-8859-6"  => "ISO-8859-6",
+      "iso-8859-7"  => "ISO-8859-7",
+      "iso-8859-8"  => "ISO-8859-8",
+      "iso-8859-9"  => "ISO-8859-9",
+      "iso-8859-10" => "ISO-8859-10",
+      "iso-8859-13" => "ISO-8859-13",
+      "iso-8859-14" => "ISO-8859-14",
+      "iso-8859-15" => "ISO-8859-15",
+      "iso-8859-16" => "ISO-8859-16",
 
       # Windows codepages
-      "windows-1250"   => "windows-1250",
-      "windows-1251"   => "windows-1251",
-      "windows-1253"   => "windows-1253",
-      "windows-1254"   => "windows-1254",
-      "windows-1255"   => "windows-1255",
-      "windows-1256"   => "windows-1256",
-      "windows-1257"   => "windows-1257",
-      "windows-1258"   => "windows-1258",
+      "windows-1250" => "windows-1250",
+      "windows-1251" => "windows-1251",
+      "windows-1253" => "windows-1253",
+      "windows-1254" => "windows-1254",
+      "windows-1255" => "windows-1255",
+      "windows-1256" => "windows-1256",
+      "windows-1257" => "windows-1257",
+      "windows-1258" => "windows-1258",
 
       # KOI8
-      "koi8-r"         => "KOI8-R",
-      "koi8-u"         => "KOI8-U",
+      "koi8-r" => "KOI8-R",
+      "koi8-u" => "KOI8-U",
 
       # Chinese
-      "gbk"            => "GBK",
-      "gb2312"         => "GBK",
-      "gb18030"        => "gb18030",
-      "big5"           => "Big5",
+      "gbk"     => "GBK",
+      "gb2312"  => "GBK",
+      "gb18030" => "gb18030",
+      "big5"    => "Big5",
 
       # Japanese
-      "euc-jp"         => "EUC-JP",
-      "shift_jis"      => "Shift_JIS",
-      "shift-jis"      => "Shift_JIS",
-      "iso-2022-jp"    => "ISO-2022-JP",
+      "euc-jp"      => "EUC-JP",
+      "shift_jis"   => "Shift_JIS",
+      "shift-jis"   => "Shift_JIS",
+      "iso-2022-jp" => "ISO-2022-JP",
 
       # Korean
-      "euc-kr"         => "EUC-KR",
+      "euc-kr" => "EUC-KR",
     }
 
     # Detect encoding from BOM (Byte Order Mark)

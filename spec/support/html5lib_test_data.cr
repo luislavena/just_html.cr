@@ -260,9 +260,9 @@ module HTML5LibTestData
         @tokens << JSON::Any.new(arr.map { |v|
           case v
           when String then JSON::Any.new(v)
-          when Bool then JSON::Any.new(v)
-          when Hash then JSON::Any.new(v)
-          else JSON::Any.new(v.to_s)
+          when Bool   then JSON::Any.new(v)
+          when Hash   then JSON::Any.new(v)
+          else             JSON::Any.new(v.to_s)
           end
         })
       else

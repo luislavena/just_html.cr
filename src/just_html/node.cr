@@ -2,6 +2,7 @@ module JustHTML
   abstract class Node
     property parent : Node?
     getter children : Array(Node)
+
     abstract def name : String
 
     def initialize
