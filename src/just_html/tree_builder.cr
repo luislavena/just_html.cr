@@ -2144,7 +2144,6 @@ module JustHTML
     end
 
     # Determine quirks mode based on DOCTYPE
-    # Simplified version - handles main cases
     private def determine_quirks_mode(doctype : Doctype) : String
       # Force quirks flag takes precedence
       return "quirks" if doctype.force_quirks?
@@ -2153,14 +2152,49 @@ module JustHTML
       name = doctype.name.try(&.downcase)
       return "quirks" if name != "html"
 
-      # Valid HTML5 doctype (no public/system ID)
-      return "no-quirks" if doctype.public_id.nil? && doctype.system_id.nil?
+      public_id = doctype.public_id
+      system_id = doctype.system_id
+      public_lower = public_id.try(&.downcase)
+      system_lower = system_id.try(&.downcase)
 
-      # about:legacy-compat is valid
-      return "no-quirks" if doctype.system_id == "about:legacy-compat"
+      # Check for exact public ID matches that trigger quirks
+      if public_lower && Constants::QUIRKY_PUBLIC_MATCHES.includes?(public_lower)
+        return "quirks"
+      end
 
-      # For simplicity, default to no-quirks for other cases
-      # A full implementation would check against quirks mode trigger lists
+      # Check for exact system ID matches that trigger quirks
+      if system_lower && Constants::QUIRKY_SYSTEM_MATCHES.includes?(system_lower)
+        return "quirks"
+      end
+
+      # Check for public ID prefixes that trigger quirks
+      if public_lower
+        Constants::QUIRKY_PUBLIC_PREFIXES.each do |prefix|
+          return "quirks" if public_lower.starts_with?(prefix)
+        end
+      end
+
+      # Check for public ID prefixes that trigger limited quirks
+      if public_lower
+        Constants::LIMITED_QUIRKY_PUBLIC_PREFIXES.each do |prefix|
+          return "limited-quirks" if public_lower.starts_with?(prefix)
+        end
+      end
+
+      # HTML 4.01 prefixes: quirks if no system ID, limited-quirks if has system ID
+      if public_lower
+        Constants::HTML4_PUBLIC_PREFIXES.each do |prefix|
+          if public_lower.starts_with?(prefix)
+            return system_lower.nil? ? "quirks" : "limited-quirks"
+          end
+        end
+      end
+
+      # Valid HTML5 doctype (no public/system ID) or about:legacy-compat
+      return "no-quirks" if public_id.nil? && system_id.nil?
+      return "no-quirks" if system_id == "about:legacy-compat"
+
+      # Default to no-quirks
       "no-quirks"
     end
 
