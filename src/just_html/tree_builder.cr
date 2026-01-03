@@ -337,14 +337,22 @@ module JustHTML
 
       # Handle whitespace in certain modes
       case @mode
-      when .initial?, .before_html?, .before_head?
+      when .initial?, .before_html?
         # Skip leading ASCII whitespace in these modes (not all Unicode whitespace)
         data = lstrip_ascii_whitespace(data)
         return if data.empty?
-        # If non-whitespace, need to ensure proper context
-        if @mode.before_head?
-          ensure_body_context
-        end
+      when .before_head?
+        # Skip leading ASCII whitespace
+        data = lstrip_ascii_whitespace(data)
+        return if data.empty?
+        # Non-whitespace: create implicit head, then reprocess in AfterHead
+        head = Element.new("head")
+        insert_element(head)
+        @head_element = head
+        @open_elements.pop # Pop head immediately
+        @mode = InsertionMode::AfterHead
+        process_characters(data) # Reprocess in AfterHead mode
+        return
       when .in_head?
         # In head mode: whitespace is inserted, non-whitespace causes head to close
         ws_len = 0
