@@ -46,6 +46,7 @@ module JustHTML
 
     getter document : Document
     getter errors : Array(ParseError)
+    getter open_elements : Array(Element)
 
     # Fragment context support
     record FragmentContext, tag_name : String, namespace : String?

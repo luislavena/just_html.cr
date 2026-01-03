@@ -284,5 +284,9 @@ module HTML5LibTestData
 
     def process_eof : Nil
     end
+
+    def open_elements : Array(JustHTML::Element)
+      [] of JustHTML::Element
+    end
   end
 end

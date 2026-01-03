@@ -5,6 +5,7 @@ module JustHTML
     abstract def process_doctype(doctype : Doctype) : Nil
     abstract def process_characters(data : String) : Nil
     abstract def process_eof : Nil
+    abstract def open_elements : Array(Element)
   end
 
   class Tokenizer
@@ -1304,8 +1305,18 @@ module JustHTML
         @state = State::DOCTYPE
       elsif check_from("[CDATA[", check_pos)
         @pos = check_pos + 7
-        # CDATA is only allowed in foreign content
-        # For now, treat as bogus comment
+        # CDATA is only allowed in foreign content (SVG/MathML)
+        # Check if the current node is in a foreign namespace
+        stack = @sink.open_elements
+        if stack.size > 0
+          current = stack.last
+          if current.namespace && current.namespace != "html"
+            # Proper CDATA section in foreign content
+            @state = State::CDATASection
+            return false
+          end
+        end
+        # Treat as bogus comment in HTML context
         add_error("cdata-in-html-content")
         @current_comment = String::Builder.new
         @current_comment << "[CDATA["
