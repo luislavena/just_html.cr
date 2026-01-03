@@ -1581,6 +1581,13 @@ module JustHTML
         @frameset_ok = false
         @mode = InsertionMode::InTemplate
         @template_insertion_modes << InsertionMode::InTemplate
+      when "script"
+        # Script in body mode - process using in head rules
+        element = create_element(tag)
+        insert_element(element)
+        @tokenizer.try(&.set_state(Tokenizer::State::ScriptData))
+        @original_mode = @mode
+        @mode = InsertionMode::Text
       else
         # Default: reconstruct formatting elements and insert the element
         reconstruct_active_formatting_elements
