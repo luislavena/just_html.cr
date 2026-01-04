@@ -700,12 +700,11 @@ module JustHTML
             end
           end
         else
-          # Insert implicit head
+          # Insert implicit head and reprocess in InHead mode
           head = Element.new("head")
           insert_element(head)
           @head_element = head
-          @open_elements.pop # Pop head immediately
-          @mode = InsertionMode::AfterHead
+          @mode = InsertionMode::InHead
           process_start_tag(tag)
         end
       when .in_head?
