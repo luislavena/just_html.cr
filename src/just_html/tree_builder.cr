@@ -985,6 +985,7 @@ module JustHTML
         reconstruct_active_formatting_elements
         element = create_element(tag)
         insert_element(element)
+        @tokenizer.try(&.set_state(Tokenizer::State::PLAINTEXT))
       when "caption", "col", "colgroup", "tbody", "td", "tfoot", "th", "thead", "tr", "table"
         # Table-related tags: pop select and reprocess
         pop_until("select")
@@ -1150,10 +1151,11 @@ module JustHTML
         end
       when "style", "script", "template"
         # Process using "in head" rules
+        saved_mode = @mode
         @mode = InsertionMode::InHead
         process_start_tag(tag)
-        # Only restore InTable if mode wasn't changed (template switches to InTemplate)
-        @mode = InsertionMode::InTable if @mode == InsertionMode::InHead
+        # Restore original mode if still in InHead (template switches to InTemplate)
+        @mode = saved_mode if @mode == InsertionMode::InHead
       when "input"
         # If type is hidden, insert it; otherwise foster parent
         if tag.attrs["type"]?.try(&.downcase) == "hidden"
